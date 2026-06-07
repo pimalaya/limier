@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- limier - AGPL-3.0-or-later - Copyright (C) 2026 Clement DOUIN -->
+<resources>
+
+    <string name="app_name">limier</string>
+
+    <string name="config_title">IMAP account</string>
+    <string name="config_domain_hint">Domain (e.g. imap.example.org)</string>
+    <string name="config_port_hint">Port (993)</string>
+    <string name="config_login_hint">Login</string>
+    <string name="config_password_hint">Password</string>
+    <string name="config_submit">Save and search</string>
+    <string name="config_incomplete">Domain and login are required</string>
+
+    <string name="search_title">Search your mail</string>
+    <string name="search_hint">Keywords (matched across every field)</string>
+    <string name="search_submit">Search</string>
+    <string name="search_edit_account">Edit account</string>
+    <string name="search_empty">Enter at least one keyword</string>
+    <string name="search_running">Searching every mailbox</string>
+    <string name="search_failed">Search failed</string>
+
+    <string name="results_back">Back to search</string>
+    <string name="results_summary">%1$d match(es) for “%2$s”</string>
+    <string name="results_none">No message matched.</string>
+    <string name="results_no_subject">(no subject)</string>
+
+    <string-array name="sasl_mechanisms">
+        <item>PLAIN</item>
+        <item>LOGIN</item>
+    </string-array>
+
+</resources>

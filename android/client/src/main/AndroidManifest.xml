@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  limier - search your mailboxes for lost mail
+  Copyright (C) 2026  Clement DOUIN
+  Licensed under the GNU Affero General Public License v3 or later.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The client opens IMAP TLS sockets; merged into the app. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+</manifest>

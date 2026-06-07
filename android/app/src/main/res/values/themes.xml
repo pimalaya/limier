@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- limier - AGPL-3.0-or-later - Copyright (C) 2026 Clement DOUIN -->
+<resources>
+
+    <!-- Framework Material theme: no AppCompat dependency, smaller APK. -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar" />
+
+</resources>

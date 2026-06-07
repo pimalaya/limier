@@ -1,0 +1,23 @@
+# limier JNI bridge: a cdylib turning io-imap's sans-io coroutines
+# into a single `search` entry point for the Android :client module.
+# Scoped to the client; the :app module never depends on it.
+
+[package]
+name = "limier"
+description = "JNI bridge driving io-imap coroutines for the limier Android client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# No client/TLS/scram features: TLS + TCP are owned by Kotlin's
+# SSLSocket, so the .so stays a pure no_std protocol state machine.
+io-imap = { version = "0.1", default-features = false }
+jni = "0.21"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

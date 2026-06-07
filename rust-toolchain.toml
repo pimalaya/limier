@@ -1,0 +1,11 @@
+# Editor / rust-analyzer hint. The flake pins the actual toolchain via
+# fenix (stable, monthly) and adds the same Android target std libs.
+[toolchain]
+channel = "stable"
+components = ["rust-src", "rust-analyzer", "clippy", "rustfmt"]
+targets = [
+    "aarch64-linux-android",
+    "armv7-linux-androideabi",
+    "x86_64-linux-android",
+    "i686-linux-android",
+]
