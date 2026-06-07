@@ -20,11 +20,11 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/detail_subject_label"
+            android:text="@string/detail_uid_label"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/detail_subject"
+            android:id="@+id/detail_uid"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
@@ -46,14 +46,26 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/detail_uid_label"
+            android:text="@string/detail_subject_label"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/detail_uid"
+            android:id="@+id/detail_subject"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
             android:textIsSelectable="true" />
+
+        <TextView
+            android:id="@+id/detail_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <LinearLayout
+            android:id="@+id/detail_parts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
 
     </LinearLayout>
 

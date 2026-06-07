@@ -18,16 +18,22 @@
 package org.pimalaya.limier
 
 import android.app.Activity
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
-import android.graphics.Typeface
 import android.os.Looper
 import android.util.TypedValue
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Spinner
@@ -39,25 +45,29 @@ import android.widget.ViewFlipper
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 import org.pimalaya.limier.client.Account
 import org.pimalaya.limier.client.Hit
 import org.pimalaya.limier.client.ImapClient
 import org.pimalaya.limier.client.MailboxHits
+import org.pimalaya.limier.client.MessagePart
+import org.pimalaya.limier.client.PartKind
 import org.pimalaya.limier.client.Sasl
 import org.pimalaya.limier.client.SearchHandle
 import org.pimalaya.limier.client.SearchListener
 
 /**
  * Single-activity host. Config, the merged search/results panel and a
- * message detail panel are swapped through a [ViewFlipper]. Search runs
- * through [ImapClient] and streams foldable per-mailbox tables in as
- * they arrive; a progress bar tracks coverage and the search button
- * doubles as a stop button.
+ * message detail panel are swapped through a [ViewFlipper]. Search
+ * streams foldable per-mailbox tables (UID / Date / Subject, newest
+ * first); tapping a row fetches and parses the message into foldable
+ * MIME-part sections.
  */
 class MainActivity : Activity() {
     private val client = ImapClient()
+    private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
-    private val dateFormat = SimpleDateFormat("dd/MM/yy, HH:mm", Locale.getDefault())
+    private val tableDateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
 
     private lateinit var store: SecureStore
     private lateinit var flipper: ViewFlipper
@@ -66,6 +76,7 @@ class MainActivity : Activity() {
     private var searching = false
     private var matchCount = 0
     private var mailboxCount = 0
+    private var pendingDownload: MessagePart? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +96,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         handle?.cancel()
+        io.shutdownNow()
         super.onDestroy()
     }
 
@@ -93,6 +105,24 @@ class MainActivity : Activity() {
             show(PANEL_MAIN)
         } else {
             super.onBackPressed()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_SAVE || resultCode != RESULT_OK) {
+            return
+        }
+
+        val uri = data?.data ?: return
+        val part = pendingDownload ?: return
+        pendingDownload = null
+
+        try {
+            contentResolver.openOutputStream(uri)?.use { it.write(part.data ?: ByteArray(0)) }
+            toast(getString(R.string.download_saved))
+        } catch (error: Exception) {
+            toast(getString(R.string.download_failed))
         }
     }
 
@@ -229,40 +259,21 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Appends a foldable section: a clickable header over a scrollable table. */
     private fun addSection(hits: MailboxHits) {
         val container = findViewById<LinearLayout>(R.id.results_container)
-        val table = buildTable(hits.hits)
-
-        val header =
-            TextView(this).apply {
-                setTextAppearance(R.style.MailboxHeader)
-                setPadding(0, dp(12), 0, dp(4))
-                isClickable = true
-            }
-        fun render() {
-            val arrow = if (table.visibility == View.VISIBLE) "▾" else "▸"
-            header.text = "$arrow ${hits.mailbox}  (${hits.hits.size})"
-        }
-        render()
-        header.setOnClickListener {
-            table.visibility = if (table.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            render()
-        }
-
-        container.addView(header)
-        container.addView(table)
+        val title = "${hits.mailbox}  (${hits.hits.size})"
+        container.addView(foldable(title, buildTable(hits.mailbox, hits.hits), expanded = true))
     }
 
-    /** A horizontally scrollable UID / Subject / Date table. */
-    private fun buildTable(hits: List<Hit>): View {
+    /** A horizontally scrollable UID / Date / Subject table, newest first. */
+    private fun buildTable(mailbox: String, hits: List<Hit>): View {
         val table =
             TableLayout(this).apply {
                 addView(
                     row(
                         cell(getString(R.string.column_uid), bold = true),
-                        cell(getString(R.string.column_subject), bold = true),
                         cell(getString(R.string.column_date), bold = true),
+                        cell(getString(R.string.column_subject), bold = true),
                     )
                 )
             }
@@ -272,16 +283,181 @@ class MainActivity : Activity() {
             val tableRow =
                 row(
                     cell(hit.uid.toString()),
+                    cell(formatTableDate(hit)),
                     cell(subject),
-                    cell(formatDate(hit)),
                 )
             tableRow.isClickable = true
             tableRow.setBackgroundResource(selectableItemBackground())
-            tableRow.setOnClickListener { showDetail(hit) }
+            tableRow.setOnClickListener { showDetail(mailbox, hit) }
             table.addView(tableRow)
         }
 
         return HorizontalScrollView(this).apply { addView(table) }
+    }
+
+    /** Fetches the message, then renders its parts as foldable sections. */
+    private fun showDetail(mailbox: String, hit: Hit) {
+        findViewById<TextView>(R.id.detail_uid).text = hit.uid.toString()
+        findViewById<TextView>(R.id.detail_date).text = hit.date.ifEmpty { formatTableDate(hit) }
+        findViewById<TextView>(R.id.detail_subject).text =
+            hit.subject.ifEmpty { getString(R.string.results_no_subject) }
+
+        val status = findViewById<TextView>(R.id.detail_status)
+        val parts = findViewById<LinearLayout>(R.id.detail_parts)
+        parts.removeAllViews()
+        status.text = getString(R.string.detail_loading)
+        status.visibility = View.VISIBLE
+        show(PANEL_DETAIL)
+
+        val account = store.load() ?: return
+        io.execute {
+            val outcome = runCatching { client.fetchMessage(account, mailbox, hit.uid) }
+            main.post {
+                outcome
+                    .onSuccess { list ->
+                        status.visibility = View.GONE
+                        list.forEach { part ->
+                            parts.addView(foldable(part.mime, partBody(part), expanded = false))
+                        }
+                    }
+                    .onFailure { error ->
+                        status.text = error.message ?: getString(R.string.detail_failed)
+                    }
+            }
+        }
+    }
+
+    /** Renders one MIME part: text shown, image displayed, binary downloadable. */
+    private fun partBody(part: MessagePart): View =
+        when (part.kind) {
+            PartKind.TEXT ->
+                if (part.mime.startsWith("text/html")) {
+                    htmlView(part.text.orEmpty())
+                } else {
+                    TextView(this).apply {
+                        text = part.text.orEmpty()
+                        setTextIsSelectable(true)
+                        setPadding(dp(8), dp(4), 0, dp(8))
+                    }
+                }
+
+            PartKind.IMAGE -> {
+                val bitmap = part.data?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                if (bitmap == null) {
+                    TextView(this).apply {
+                        text = getString(R.string.detail_image_error)
+                        setPadding(dp(8), dp(4), 0, dp(8))
+                    }
+                } else {
+                    ImageView(this).apply {
+                        layoutParams =
+                            LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                            )
+                        setImageBitmap(bitmap)
+                        adjustViewBounds = true
+                        maxHeight = dp(400)
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        setPadding(dp(8), dp(4), 0, dp(8))
+                    }
+                }
+            }
+
+            PartKind.BINARY -> {
+                val name = part.filename ?: getString(R.string.attachment_default_name)
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(8), dp(4), 0, dp(8))
+
+                    addView(
+                        TextView(this@MainActivity).apply {
+                            text =
+                                getString(
+                                    R.string.part_details,
+                                    name,
+                                    part.mime,
+                                    formatSize(part.data?.size ?: 0),
+                                )
+                            setTextIsSelectable(true)
+                            setPadding(0, 0, 0, dp(8))
+                        }
+                    )
+
+                    addView(
+                        Button(this@MainActivity).apply {
+                            text = getString(R.string.download_action, name)
+                            setOnClickListener { startDownload(part) }
+                        }
+                    )
+                }
+            }
+        }
+
+    /**
+     * Renders an HTML part in a contained, sandboxed WebView (an iframe
+     * equivalent): JavaScript off and network loads blocked, so remote
+     * trackers and scripts never run; links open in the browser.
+     */
+    private fun htmlView(html: String): View =
+        WebView(this).apply {
+            layoutParams =
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(400))
+            settings.javaScriptEnabled = false
+            settings.blockNetworkLoads = true
+            webViewClient =
+                object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView,
+                        request: WebResourceRequest,
+                    ): Boolean {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                        } catch (_: Exception) {}
+                        return true
+                    }
+                }
+            loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+        }
+
+    private fun startDownload(part: MessagePart) {
+        pendingDownload = part
+        val intent =
+            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = part.mime
+                putExtra(
+                    Intent.EXTRA_TITLE,
+                    part.filename ?: getString(R.string.attachment_default_name),
+                )
+            }
+        startActivityForResult(intent, REQ_SAVE)
+    }
+
+    /** A clickable header that folds [body] open and shut. */
+    private fun foldable(title: String, body: View, expanded: Boolean): View {
+        val header =
+            TextView(this).apply {
+                setTextAppearance(R.style.MailboxHeader)
+                setPadding(0, dp(12), 0, dp(4))
+                isClickable = true
+            }
+        body.visibility = if (expanded) View.VISIBLE else View.GONE
+        fun render() {
+            val arrow = if (body.visibility == View.VISIBLE) "▾" else "▸"
+            header.text = "$arrow $title"
+        }
+        render()
+        header.setOnClickListener {
+            body.visibility = if (body.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            render()
+        }
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(header)
+            addView(body)
+        }
     }
 
     private fun row(vararg cells: TextView): TableRow =
@@ -295,16 +471,15 @@ class MainActivity : Activity() {
             if (bold) setTypeface(typeface, Typeface.BOLD)
         }
 
-    private fun showDetail(hit: Hit) {
-        findViewById<TextView>(R.id.detail_uid).text = hit.uid.toString()
-        findViewById<TextView>(R.id.detail_subject).text =
-            hit.subject.ifEmpty { getString(R.string.results_no_subject) }
-        findViewById<TextView>(R.id.detail_date).text = formatDate(hit)
-        show(PANEL_DETAIL)
-    }
+    private fun formatTableDate(hit: Hit): String =
+        if (hit.timestamp > 0) tableDateFormat.format(Date(hit.timestamp * 1000)) else hit.date
 
-    private fun formatDate(hit: Hit): String =
-        if (hit.timestamp > 0) dateFormat.format(Date(hit.timestamp * 1000)) else hit.date
+    private fun formatSize(bytes: Int): String =
+        when {
+            bytes >= 1_000_000 -> String.format(Locale.getDefault(), "%.1f MB", bytes / 1_000_000.0)
+            bytes >= 1_000 -> String.format(Locale.getDefault(), "%.1f KB", bytes / 1_000.0)
+            else -> "$bytes B"
+        }
 
     private fun liveSummary(): String =
         getString(R.string.results_live, matchCount, mailboxCount)
@@ -330,5 +505,6 @@ class MainActivity : Activity() {
         const val PANEL_MAIN = 1
         const val PANEL_DETAIL = 2
         const val DEFAULT_PORT = 993
+        const val REQ_SAVE = 1
     }
 }

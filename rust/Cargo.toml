@@ -23,3 +23,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Parses the ENVELOPE Date header to an epoch the UI formats locally.
 chrono = { version = "0.4", default-features = false, features = ["alloc"] }
+# Parses a fetched raw message into MIME parts for the detail panel.
+mail-parser = "0.11"
+# Encodes binary/image parts for transport through the JSON reply.
+base64 = "0.22"

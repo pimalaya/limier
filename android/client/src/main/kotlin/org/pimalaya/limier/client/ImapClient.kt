@@ -17,6 +17,7 @@
 
 package org.pimalaya.limier.client
 
+import android.util.Base64
 import java.util.Collections
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -124,6 +125,57 @@ class ImapClient {
         }
 
         listener.onFinished(if (cancelled.get()) null else errors.firstOrNull())
+    }
+
+    /**
+     * Fetches and parses one message into its MIME parts. Blocking:
+     * call off the main thread.
+     */
+    fun fetchMessage(account: Account, mailbox: String, uid: Long): List<MessagePart> =
+        withConnection(account) { transport ->
+            val json =
+                Native.fetchMessage(
+                    transport,
+                    account.login,
+                    account.password,
+                    account.sasl.name,
+                    mailbox,
+                    uid,
+                )
+            parseParts(json)
+        }
+
+    private fun parseParts(json: String): List<MessagePart> {
+        val obj = JSONObject(json.trim())
+
+        val error = obj.optString("error")
+        if (error.isNotEmpty()) {
+            throw ImapException(error)
+        }
+
+        val parts = obj.getJSONArray("parts")
+        return (0 until parts.length()).map { index ->
+            val part = parts.getJSONObject(index)
+            val kind =
+                when (part.getString("kind")) {
+                    "text" -> PartKind.TEXT
+                    "image" -> PartKind.IMAGE
+                    else -> PartKind.BINARY
+                }
+
+            MessagePart(
+                mime = part.getString("mime"),
+                kind = kind,
+                text = if (part.has("text")) part.getString("text") else null,
+                data =
+                    if (part.has("data")) {
+                        Base64.decode(part.getString("data"), Base64.DEFAULT)
+                    } else {
+                        null
+                    },
+                filename = if (part.has("filename")) part.getString("filename") else null,
+            )
+        }
     }
 
     private fun listMailboxes(account: Account): List<String> =

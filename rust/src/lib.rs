@@ -31,6 +31,7 @@
 //! Each call owns one connection, so the client runs several in
 //! parallel; results (UID + subject + date) surface mailbox by mailbox.
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::DateTime;
 use io_imap::{
     codec::fragmentizer::Fragmentizer,
@@ -57,9 +58,10 @@ use io_imap::{
 };
 use jni::{
     objects::{JByteArray, JClass, JObject, JString},
-    sys::jstring,
+    sys::{jlong, jstring},
     JNIEnv,
 };
+use mail_parser::{MessageParser, MessagePart, MimeHeaders, PartType};
 use serde::Serialize;
 
 /// Matches io-imap's own fragmentizer ceiling (100 MiB per message).
@@ -81,6 +83,21 @@ struct Hit {
 struct MailboxHits {
     mailbox: String,
     hits: Vec<Hit>,
+}
+
+/// One MIME part of a fetched message, for the detail panel. `kind` is
+/// "text" (then `text` is set), "image" or "binary" (then `data` is
+/// base64). `filename` is the attachment name when present.
+#[derive(Serialize)]
+struct Part {
+    mime: String,
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filename: Option<String>,
 }
 
 /// Borrowed account credentials threaded through one connection.
@@ -161,6 +178,37 @@ pub extern "system" fn Java_org_pimalaya_limier_client_Native_searchMailboxes<'l
     };
 
     new_string(&mut env, message)
+}
+
+/// `Native.fetchMessage`: greeting, auth, SELECT, UID FETCH BODY.PEEK[],
+/// then mail-parser. Returns `{"parts": [..]}` or `{"error": ".."}`.
+#[no_mangle]
+pub extern "system" fn Java_org_pimalaya_limier_client_Native_fetchMessage<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    transport: JObject<'local>,
+    login: JString<'local>,
+    password: JString<'local>,
+    sasl: JString<'local>,
+    mailbox: JString<'local>,
+    uid: jlong,
+) -> jstring {
+    let login = read_string(&mut env, &login);
+    let password = read_string(&mut env, &password);
+    let sasl = read_string(&mut env, &sasl);
+    let mailbox = read_string(&mut env, &mailbox);
+    let credentials = Credentials {
+        login: &login,
+        password: &password,
+        sasl: &sasl,
+    };
+
+    let json = match fetch_message(&mut env, &transport, &credentials, &mailbox, uid as u32) {
+        Ok(parts) => serde_json::json!({ "parts": parts }).to_string(),
+        Err(err) => error_json(&err),
+    };
+
+    new_string(&mut env, json)
 }
 
 /// Greeting, auth, then LIST filtered to selectable mailbox names.
@@ -300,12 +348,134 @@ fn search_one(
         ),
     )?;
 
-    let hits = fetched
+    let mut hits: Vec<Hit> = fetched
         .into_values()
         .map(|items| hit_from(items.into_inner()))
         .collect();
 
+    // Most recent first; unparseable dates (timestamp 0) sink to the end.
+    hits.sort_by_key(|hit| core::cmp::Reverse(hit.timestamp));
+
     Ok(hits)
+}
+
+/// SELECT the mailbox, UID FETCH the full raw message (BODY.PEEK[], so
+/// `\Seen` is untouched), and parse it into MIME parts.
+fn fetch_message(
+    env: &mut JNIEnv,
+    transport: &JObject,
+    credentials: &Credentials,
+    mailbox: &str,
+    uid: u32,
+) -> Result<Vec<Part>, String> {
+    let mut fragmentizer = Fragmentizer::new(MAX_MESSAGE_SIZE);
+
+    open_session(env, transport, &mut fragmentizer, credentials)?;
+
+    let selected: Mailbox = mailbox
+        .to_string()
+        .try_into()
+        .map_err(|_| format!("Invalid mailbox `{mailbox}`"))?;
+    drive(
+        env,
+        transport,
+        &mut fragmentizer,
+        ImapMailboxSelect::new(selected, ImapMailboxSelectOptions::default()),
+    )?;
+
+    let sequence_set: SequenceSet = uid
+        .to_string()
+        .as_str()
+        .try_into()
+        .map_err(|_| format!("Invalid UID `{uid}`"))?;
+    let item_names =
+        MacroOrMessageDataItemNames::MessageDataItemNames(vec![MessageDataItemName::BodyExt {
+            section: None,
+            partial: None,
+            peek: true,
+        }]);
+    let fetched = drive(
+        env,
+        transport,
+        &mut fragmentizer,
+        ImapMessageFetch::new(
+            sequence_set,
+            item_names,
+            ImapMessageFetchOptions {
+                uid: true,
+                ..Default::default()
+            },
+        ),
+    )?;
+
+    let raw = fetched
+        .into_values()
+        .flat_map(|items| items.into_inner())
+        .find_map(|item| match item {
+            MessageDataItem::BodyExt { data, .. } => {
+                data.into_option().map(|value| value.as_ref().to_vec())
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "Message body not found".to_string())?;
+
+    Ok(parse_parts(&raw))
+}
+
+/// Flattens a parsed message into leaf MIME parts (containers skipped).
+fn parse_parts(raw: &[u8]) -> Vec<Part> {
+    let Some(message) = MessageParser::default().parse(raw) else {
+        return Vec::new();
+    };
+
+    let mut parts = Vec::new();
+
+    for part in &message.parts {
+        match &part.body {
+            PartType::Text(text) => parts.push(Part {
+                mime: content_type_string(part).unwrap_or_else(|| "text/plain".to_string()),
+                kind: "text",
+                text: Some(text.to_string()),
+                data: None,
+                filename: None,
+            }),
+            PartType::Html(html) => parts.push(Part {
+                mime: content_type_string(part).unwrap_or_else(|| "text/html".to_string()),
+                kind: "text",
+                text: Some(html.to_string()),
+                data: None,
+                filename: None,
+            }),
+            PartType::Binary(bytes) | PartType::InlineBinary(bytes) => {
+                let mime = content_type_string(part)
+                    .unwrap_or_else(|| "application/octet-stream".to_string());
+                let kind = if mime.starts_with("image/") {
+                    "image"
+                } else {
+                    "binary"
+                };
+                parts.push(Part {
+                    mime,
+                    kind,
+                    text: None,
+                    data: Some(STANDARD.encode(bytes.as_ref())),
+                    filename: part.attachment_name().map(str::to_string),
+                });
+            }
+            PartType::Message(_) | PartType::Multipart(_) => {}
+        }
+    }
+
+    parts
+}
+
+/// `type/subtype` of a MIME part, when the Content-Type header is present.
+fn content_type_string(part: &MessagePart) -> Option<String> {
+    part.content_type()
+        .map(|content_type| match content_type.subtype() {
+            Some(subtype) => format!("{}/{}", content_type.ctype(), subtype),
+            None => content_type.ctype().to_string(),
+        })
 }
 
 /// Greeting then SASL auth, shared by both entry points.
