@@ -18,11 +18,14 @@
 package org.pimalaya.limier.client
 
 /**
- * The liblimier.so boundary. Implemented in Rust as
- * Java_org_pimalaya_limier_client_Native_search; the bridge drives
- * io-imap's coroutines and does socket I/O through [transport].
+ * The liblimier.so boundary. Each call owns one [Transport] connection,
+ * so the client runs several in parallel.
  *
- * Returns a JSON string: an array of mailbox hits, or `{"error": ".."}`.
+ * - [listMailboxes] returns a JSON array of selectable mailbox names,
+ *   or `{"error": ".."}`.
+ * - [searchMailboxes] streams each non-empty mailbox to [sink] via
+ *   `onMailbox(String)`, and returns an empty string on success or an
+ *   error message.
  */
 internal object Native {
     init {
@@ -30,11 +33,21 @@ internal object Native {
     }
 
     @JvmStatic
-    external fun search(
+    external fun listMailboxes(
         transport: Transport,
         login: String,
         password: String,
         sasl: String,
+    ): String
+
+    @JvmStatic
+    external fun searchMailboxes(
+        transport: Transport,
+        login: String,
+        password: String,
+        sasl: String,
+        mailboxes: String,
         keywords: String,
+        sink: MailboxSink,
     ): String
 }

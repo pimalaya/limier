@@ -1,6 +1,7 @@
 # limier client: JNI-facing symbols R8 must not rename or remove.
 
-# Native.search is matched by its fully-qualified name from Rust.
+# Native.listMailboxes / searchMailboxes are matched by their
+# fully-qualified names from Rust.
 -keep class org.pimalaya.limier.client.Native { *; }
 
 # Transport.read / Transport.write are called only from native code,
@@ -8,4 +9,9 @@
 -keep class org.pimalaya.limier.client.Transport {
     byte[] read();
     void write(byte[]);
+}
+
+# MailboxSink.onMailbox is the streaming callback invoked from native.
+-keep class org.pimalaya.limier.client.MailboxSink {
+    void onMailbox(java.lang.String);
 }

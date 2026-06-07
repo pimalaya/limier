@@ -17,6 +17,8 @@
 
 package org.pimalaya.limier.client
 
+import java.util.Collections
+import java.util.concurrent.Executors
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import org.json.JSONArray
@@ -26,72 +28,127 @@ import org.json.JSONObject
 class ImapException(message: String) : Exception(message)
 
 /**
- * The only surface the app needs: hand it an [Account] and keywords,
- * get back matching messages grouped by mailbox. Owns the TLS socket
- * and the Rust bridge; the app never touches sockets or JNI.
+ * Streamed search results. Callbacks arrive on background worker
+ * threads (several mailboxes may complete at once), so implementations
+ * must marshal to their UI thread themselves.
+ */
+interface SearchListener {
+    /** One mailbox's hits, as soon as that mailbox finishes. */
+    fun onMailbox(hits: MailboxHits)
+
+    /** Called once when the whole search ends; [error] is null on success. */
+    fun onFinished(error: String?)
+}
+
+/**
+ * The only surface the app needs. [search] lists the mailboxes once,
+ * then fans the search out across several TLS connections in parallel,
+ * forwarding each mailbox's hits through [SearchListener] as it arrives.
+ * Owns all sockets and the Rust bridge; the app sees neither.
  *
- * Blocking and network-bound: call it off the main thread.
+ * Blocking: call [search] off the main thread.
  */
 class ImapClient {
-    /**
-     * Opens an implicit-TLS connection (port 993 by convention),
-     * authenticates, and runs one broad UID SEARCH across every
-     * selectable mailbox. [keywords] are whitespace-split and OR-ed
-     * over the whole message (header and body).
-     */
-    fun searchAll(account: Account, keywords: String): List<MailboxHits> {
+    fun search(account: Account, keywords: String, listener: SearchListener) {
+        val mailboxes =
+            try {
+                listMailboxes(account)
+            } catch (error: Exception) {
+                listener.onFinished(error.message ?: "Listing mailboxes failed")
+                return
+            }
+
+        if (mailboxes.isEmpty()) {
+            listener.onFinished(null)
+            return
+        }
+
+        val workerCount = minOf(WORKERS, mailboxes.size)
+        val buckets =
+            List(workerCount) { worker ->
+                mailboxes.filterIndexed { index, _ -> index % workerCount == worker }
+            }
+
+        val pool = Executors.newFixedThreadPool(workerCount)
+        val errors = Collections.synchronizedList(mutableListOf<String>())
+
+        try {
+            buckets
+                .map { bucket ->
+                    pool.submit {
+                        try {
+                            searchBucket(account, bucket, keywords, listener)
+                        } catch (error: Exception) {
+                            errors.add(error.message ?: "Worker failed")
+                        }
+                    }
+                }
+                .forEach { it.get() }
+        } finally {
+            pool.shutdown()
+        }
+
+        listener.onFinished(errors.firstOrNull())
+    }
+
+    private fun listMailboxes(account: Account): List<String> =
+        withConnection(account) { transport ->
+            val json =
+                Native.listMailboxes(transport, account.login, account.password, account.sasl.name)
+            val trimmed = json.trim()
+
+            if (trimmed.startsWith("{")) {
+                val error = JSONObject(trimmed).optString("error")
+                if (error.isNotEmpty()) {
+                    throw ImapException(error)
+                }
+            }
+
+            val names = JSONArray(trimmed)
+            (0 until names.length()).map { names.getString(it) }
+        }
+
+    private fun searchBucket(
+        account: Account,
+        mailboxes: List<String>,
+        keywords: String,
+        listener: SearchListener,
+    ) {
+        if (mailboxes.isEmpty()) {
+            return
+        }
+
+        withConnection(account) { transport ->
+            val sink = MailboxSink { hits -> listener.onMailbox(hits) }
+            val error =
+                Native.searchMailboxes(
+                    transport,
+                    account.login,
+                    account.password,
+                    account.sasl.name,
+                    JSONArray(mailboxes).toString(),
+                    keywords,
+                    sink,
+                )
+            if (error.isNotEmpty()) {
+                throw ImapException(error)
+            }
+        }
+    }
+
+    private fun <T> withConnection(account: Account, block: (Transport) -> T): T {
         val socket =
             SSLSocketFactory.getDefault().createSocket(account.domain, account.port) as SSLSocket
 
         socket.use { connected ->
             connected.soTimeout = SOCKET_TIMEOUT_MS
             connected.startHandshake()
-
-            val json =
-                Native.search(
-                    Transport(connected),
-                    account.login,
-                    account.password,
-                    account.sasl.name,
-                    keywords,
-                )
-
-            return parse(json)
-        }
-    }
-
-    /** Turns the bridge's JSON reply into typed results, or throws. */
-    private fun parse(json: String): List<MailboxHits> {
-        val trimmed = json.trim()
-
-        if (trimmed.startsWith("{")) {
-            val error = JSONObject(trimmed).optString("error")
-            if (error.isNotEmpty()) {
-                throw ImapException(error)
-            }
-        }
-
-        val mailboxes = JSONArray(trimmed)
-        return (0 until mailboxes.length()).map { mailboxIndex ->
-            val mailbox = mailboxes.getJSONObject(mailboxIndex)
-            val hits = mailbox.getJSONArray("hits")
-
-            MailboxHits(
-                mailbox = mailbox.getString("mailbox"),
-                hits =
-                    (0 until hits.length()).map { hitIndex ->
-                        val hit = hits.getJSONObject(hitIndex)
-                        Hit(
-                            uid = hit.getLong("uid"),
-                            subject = hit.getString("subject"),
-                            date = hit.getString("date"),
-                        )
-                    },
-            )
+            return block(Transport(connected))
         }
     }
 
     private companion object {
+        const val WORKERS = 4
         const val SOCKET_TIMEOUT_MS = 30_000
     }
 }

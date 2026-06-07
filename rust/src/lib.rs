@@ -18,12 +18,18 @@
 //! JNI bridge for the limier Android :client module.
 //!
 //! TLS and TCP live in Kotlin (SSLSocket); this crate is a pure
-//! protocol state machine. The single exported `search` call drives
-//! io-imap's sans-io coroutines (greeting, SASL auth, LIST, then per
-//! mailbox SELECT + UID SEARCH + UID FETCH ENVELOPE), performing all
-//! socket I/O by upcalling a Kotlin `Transport` object on each yield.
-//! Results (UID + subject + date, grouped by mailbox) come back as a
-//! JSON string; failures come back as `{"error": "..."}`.
+//! protocol state machine driving io-imap's sans-io coroutines and
+//! doing all socket I/O by upcalling a Kotlin `Transport` on each
+//! yield. Two entry points let the client fan out across connections:
+//!
+//! - `listMailboxes`: greeting, SASL auth, LIST; returns selectable
+//!   mailbox names as a JSON array (or `{"error": ".."}`).
+//! - `searchMailboxes`: greeting, SASL auth, then SELECT + UID SEARCH +
+//!   UID FETCH ENVELOPE over an assigned subset of mailboxes, streaming
+//!   each non-empty mailbox to a Kotlin listener as it completes.
+//!
+//! Each call owns one connection, so the client runs several in
+//! parallel; results (UID + subject + date) surface mailbox by mailbox.
 
 use io_imap::{
     codec::fragmentizer::Fragmentizer,
@@ -58,7 +64,7 @@ use serde::Serialize;
 /// Matches io-imap's own fragmentizer ceiling (100 MiB per message).
 const MAX_MESSAGE_SIZE: u32 = 100 * 1024 * 1024;
 
-/// One matching message, as shown by the results panel.
+/// One matching message, as shown by the results screen.
 #[derive(Serialize)]
 struct Hit {
     uid: u32,
@@ -66,118 +72,171 @@ struct Hit {
     date: String,
 }
 
-/// Search hits for a single mailbox.
+/// Search hits for a single mailbox; the streaming callback payload.
 #[derive(Serialize)]
 struct MailboxHits {
     mailbox: String,
     hits: Vec<Hit>,
 }
 
-/// `Imap.search` (Kotlin `org.pimalaya.limier.client.Native`).
-///
-/// `transport` is a connected (already TLS-wrapped) Kotlin object
-/// exposing `read(): ByteArray` and `write(ByteArray)`. Returns a JSON
-/// string: an array of [`MailboxHits`] on success, or `{"error": ".."}`.
+/// Borrowed account credentials threaded through one connection.
+struct Credentials<'a> {
+    login: &'a str,
+    password: &'a str,
+    sasl: &'a str,
+}
+
+/// `Native.listMailboxes`: greeting, auth, LIST. Returns a JSON array
+/// of selectable mailbox names, or `{"error": ".."}`.
 #[no_mangle]
-pub extern "system" fn Java_org_pimalaya_limier_client_Native_search<'local>(
+pub extern "system" fn Java_org_pimalaya_limier_client_Native_listMailboxes<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     transport: JObject<'local>,
     login: JString<'local>,
     password: JString<'local>,
     sasl: JString<'local>,
-    keywords: JString<'local>,
 ) -> jstring {
-    let login = jstring_to_string(&mut env, &login);
-    let password = jstring_to_string(&mut env, &password);
-    let sasl = jstring_to_string(&mut env, &sasl);
-    let keywords = jstring_to_string(&mut env, &keywords);
-
-    // Scope the transport borrow so `env` is free again for the reply.
-    let result = {
-        let mut transport = Transport {
-            env: &mut env,
-            obj: &transport,
-        };
-        run_search(&mut transport, &login, &password, &sasl, &keywords)
+    let login = read_string(&mut env, &login);
+    let password = read_string(&mut env, &password);
+    let sasl = read_string(&mut env, &sasl);
+    let credentials = Credentials {
+        login: &login,
+        password: &password,
+        sasl: &sasl,
     };
 
-    let json = match result {
-        Ok(mailboxes) => {
-            serde_json::to_string(&mailboxes).unwrap_or_else(|err| error_json(&err.to_string()))
+    let json = match list_mailboxes(&mut env, &transport, &credentials) {
+        Ok(names) => {
+            serde_json::to_string(&names).unwrap_or_else(|err| error_json(&err.to_string()))
         }
         Err(err) => error_json(&err),
     };
 
-    env.new_string(json)
-        .map(JString::into_raw)
-        .unwrap_or(std::ptr::null_mut())
+    new_string(&mut env, json)
 }
 
-/// Full session flow over the Kotlin transport. Greeting, auth and LIST
-/// failures are fatal; a single mailbox that fails to SELECT/SEARCH is
-/// skipped so one bad folder never aborts the whole sweep.
-fn run_search(
-    transport: &mut Transport,
-    login: &str,
-    password: &str,
-    sasl: &str,
-    keywords: &str,
-) -> Result<Vec<MailboxHits>, String> {
+/// `Native.searchMailboxes`: greeting, auth, then per assigned mailbox
+/// SELECT + UID SEARCH + UID FETCH ENVELOPE, calling `listener`'s
+/// `onMailbox(String)` for each mailbox that has hits. Returns an empty
+/// string on success, or an error message.
+#[no_mangle]
+pub extern "system" fn Java_org_pimalaya_limier_client_Native_searchMailboxes<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    transport: JObject<'local>,
+    login: JString<'local>,
+    password: JString<'local>,
+    sasl: JString<'local>,
+    mailboxes: JString<'local>,
+    keywords: JString<'local>,
+    listener: JObject<'local>,
+) -> jstring {
+    let login = read_string(&mut env, &login);
+    let password = read_string(&mut env, &password);
+    let sasl = read_string(&mut env, &sasl);
+    let keywords = read_string(&mut env, &keywords);
+    let mailboxes: Vec<String> =
+        serde_json::from_str(&read_string(&mut env, &mailboxes)).unwrap_or_default();
+    let credentials = Credentials {
+        login: &login,
+        password: &password,
+        sasl: &sasl,
+    };
+
+    let message = match search_mailboxes(
+        &mut env,
+        &transport,
+        &listener,
+        &credentials,
+        &mailboxes,
+        &keywords,
+    ) {
+        Ok(()) => String::new(),
+        Err(err) => err,
+    };
+
+    new_string(&mut env, message)
+}
+
+/// Greeting, auth, then LIST filtered to selectable mailbox names.
+fn list_mailboxes(
+    env: &mut JNIEnv,
+    transport: &JObject,
+    credentials: &Credentials,
+) -> Result<Vec<String>, String> {
     let mut fragmentizer = Fragmentizer::new(MAX_MESSAGE_SIZE);
 
-    drive(
-        transport,
-        &mut fragmentizer,
-        ImapGreetingGet::new(ImapGreetingGetOptions {
-            ensure_capabilities: true,
-        }),
-    )?;
-
-    authenticate(transport, &mut fragmentizer, login, password, sasl)?;
+    open_session(env, transport, &mut fragmentizer, credentials)?;
 
     let reference: Mailbox = "".try_into().expect("empty LIST reference is valid");
     let pattern: ListMailbox = "*".try_into().expect("`*` LIST pattern is valid");
     let listing = drive(
+        env,
         transport,
         &mut fragmentizer,
         ImapMailboxList::new(reference, pattern),
     )?;
 
-    let mut out = Vec::new();
+    let names = listing
+        .into_iter()
+        .filter(|(_, _, attributes)| {
+            !attributes
+                .iter()
+                .any(|attr| matches!(attr, FlagNameAttribute::Noselect))
+        })
+        .map(|(mailbox, _, _)| mailbox_name(&mailbox))
+        .collect();
 
-    for (mailbox, _delimiter, attributes) in listing {
-        if attributes
-            .iter()
-            .any(|attr| matches!(attr, FlagNameAttribute::Noselect))
-        {
-            continue;
-        }
-
-        let name = mailbox_name(&mailbox);
-
-        match search_mailbox(transport, &mut fragmentizer, mailbox, keywords) {
-            Ok(hits) if !hits.is_empty() => out.push(MailboxHits {
-                mailbox: name,
-                hits,
-            }),
-            // Empty result or a per-mailbox error: just move on.
-            _ => {}
-        }
-    }
-
-    Ok(out)
+    Ok(names)
 }
 
-/// SELECT the mailbox, UID SEARCH the keywords, UID FETCH ENVELOPE for
-/// every match, and fold each row down to UID + subject + date.
-fn search_mailbox(
-    transport: &mut Transport,
+/// Greeting, auth, then a streamed search over the assigned mailboxes.
+/// A mailbox that fails to SELECT/SEARCH is skipped, never fatal.
+fn search_mailboxes(
+    env: &mut JNIEnv,
+    transport: &JObject,
+    listener: &JObject,
+    credentials: &Credentials,
+    mailboxes: &[String],
+    keywords: &str,
+) -> Result<(), String> {
+    let mut fragmentizer = Fragmentizer::new(MAX_MESSAGE_SIZE);
+
+    open_session(env, transport, &mut fragmentizer, credentials)?;
+
+    for name in mailboxes {
+        let hits = match search_one(env, transport, &mut fragmentizer, name, keywords) {
+            Ok(hits) if !hits.is_empty() => hits,
+            _ => continue,
+        };
+
+        let payload = MailboxHits {
+            mailbox: name.clone(),
+            hits,
+        };
+        let json = serde_json::to_string(&payload).map_err(|err| err.to_string())?;
+        emit(env, listener, &json)?;
+    }
+
+    Ok(())
+}
+
+/// SELECT, UID SEARCH, UID FETCH ENVELOPE for one mailbox.
+fn search_one(
+    env: &mut JNIEnv,
+    transport: &JObject,
     fragmentizer: &mut Fragmentizer,
-    mailbox: Mailbox<'static>,
+    name: &str,
     keywords: &str,
 ) -> Result<Vec<Hit>, String> {
+    let mailbox: Mailbox = name
+        .to_string()
+        .try_into()
+        .map_err(|_| format!("Invalid mailbox `{name}`"))?;
+
     let select = drive(
+        env,
         transport,
         fragmentizer,
         ImapMailboxSelect::new(mailbox, ImapMailboxSelectOptions::default()),
@@ -188,6 +247,7 @@ fn search_mailbox(
     }
 
     let uids = drive(
+        env,
         transport,
         fragmentizer,
         ImapMessageSearch::new(
@@ -216,6 +276,7 @@ fn search_mailbox(
     ]);
 
     let fetched = drive(
+        env,
         transport,
         fragmentizer,
         ImapMessageFetch::new(
@@ -236,18 +297,31 @@ fn search_mailbox(
     Ok(hits)
 }
 
-/// SASL PLAIN (default) or SASL LOGIN, selected by the `sasl` argument.
-/// `initial_request: false` keeps it working on servers without
-/// SASL-IR.
-fn authenticate(
-    transport: &mut Transport,
+/// Greeting then SASL auth, shared by both entry points.
+fn open_session(
+    env: &mut JNIEnv,
+    transport: &JObject,
     fragmentizer: &mut Fragmentizer,
-    login: &str,
-    password: &str,
-    sasl: &str,
+    credentials: &Credentials,
 ) -> Result<(), String> {
+    drive(
+        env,
+        transport,
+        fragmentizer,
+        ImapGreetingGet::new(ImapGreetingGetOptions {
+            ensure_capabilities: true,
+        }),
+    )?;
+
+    let Credentials {
+        login,
+        password,
+        sasl,
+    } = credentials;
+
     if sasl.eq_ignore_ascii_case("login") {
         drive(
+            env,
             transport,
             fragmentizer,
             ImapAuthLogin::new(
@@ -262,6 +336,7 @@ fn authenticate(
         )?;
     } else {
         drive(
+            env,
             transport,
             fragmentizer,
             ImapAuthPlain::new(
@@ -329,7 +404,8 @@ fn hit_from(items: Vec<MessageDataItem<'static>>) -> Hit {
 /// Drives a standard-shape coroutine to completion, servicing every
 /// `WantsRead`/`WantsWrite` yield through the Kotlin transport.
 fn drive<C, T, E>(
-    transport: &mut Transport,
+    env: &mut JNIEnv,
+    transport: &JObject,
     fragmentizer: &mut Fragmentizer,
     mut coroutine: C,
 ) -> Result<T, String>
@@ -344,55 +420,49 @@ where
             ImapCoroutineState::Complete(Ok(value)) => return Ok(value),
             ImapCoroutineState::Complete(Err(err)) => return Err(err.to_string()),
             ImapCoroutineState::Yielded(ImapYield::WantsRead) => {
-                arg = Some(transport.read()?);
+                arg = Some(transport_read(env, transport)?);
             }
             ImapCoroutineState::Yielded(ImapYield::WantsWrite(bytes)) => {
-                transport.write(&bytes)?;
+                transport_write(env, transport, &bytes)?;
                 arg = None;
             }
         }
     }
 }
 
-/// Borrowed handle to the Kotlin `Transport` object, used for socket
-/// I/O via JNI upcalls.
-struct Transport<'a, 'local> {
-    env: &'a mut JNIEnv<'local>,
-    obj: &'a JObject<'local>,
+/// Reads the next chunk from the Kotlin transport; an empty slice
+/// signals EOF to the coroutine.
+fn transport_read(env: &mut JNIEnv, transport: &JObject) -> Result<Vec<u8>, String> {
+    let value = env
+        .call_method(transport, "read", "()[B", &[])
+        .map_err(|err| clear_and_fail(env, "transport read", err))?;
+    let array = value.l().map_err(|err| err.to_string())?;
+    let array = unsafe { JByteArray::from_raw(array.into_raw()) };
+    env.convert_byte_array(&array)
+        .map_err(|err| err.to_string())
 }
 
-impl Transport<'_, '_> {
-    /// Reads the next chunk; an empty slice signals EOF to the
-    /// coroutine.
-    fn read(&mut self) -> Result<Vec<u8>, String> {
-        let value = self
-            .env
-            .call_method(self.obj, "read", "()[B", &[])
-            .map_err(|err| self.fail("read", err))?;
-        let array = value.l().map_err(|err| err.to_string())?;
-        let array = unsafe { JByteArray::from_raw(array.into_raw()) };
-        self.env
-            .convert_byte_array(&array)
-            .map_err(|err| err.to_string())
-    }
+/// Writes all bytes to the Kotlin transport.
+fn transport_write(env: &mut JNIEnv, transport: &JObject, bytes: &[u8]) -> Result<(), String> {
+    let array = env
+        .byte_array_from_slice(bytes)
+        .map_err(|err| err.to_string())?;
+    env.call_method(transport, "write", "([B)V", &[(&array).into()])
+        .map_err(|err| clear_and_fail(env, "transport write", err))?;
+    Ok(())
+}
 
-    /// Writes all bytes to the socket.
-    fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let array = self
-            .env
-            .byte_array_from_slice(bytes)
-            .map_err(|err| err.to_string())?;
-        self.env
-            .call_method(self.obj, "write", "([B)V", &[(&array).into()])
-            .map_err(|err| self.fail("write", err))?;
-        Ok(())
-    }
-
-    /// Clears any pending Java exception and renders a message.
-    fn fail(&mut self, op: &str, err: jni::errors::Error) -> String {
-        self.env.exception_clear().ok();
-        format!("Transport {op} failed: {err}")
-    }
+/// Hands one mailbox's JSON to the Kotlin listener's `onMailbox`.
+fn emit(env: &mut JNIEnv, listener: &JObject, json: &str) -> Result<(), String> {
+    let payload = env.new_string(json).map_err(|err| err.to_string())?;
+    env.call_method(
+        listener,
+        "onMailbox",
+        "(Ljava/lang/String;)V",
+        &[(&payload).into()],
+    )
+    .map_err(|err| clear_and_fail(env, "listener callback", err))?;
+    Ok(())
 }
 
 /// IMAP `Mailbox` to its display/group name.
@@ -404,10 +474,23 @@ fn mailbox_name(mailbox: &Mailbox<'static>) -> String {
 }
 
 /// Reads a Java string, defaulting to empty on any conversion error.
-fn jstring_to_string(env: &mut JNIEnv, value: &JString) -> String {
+fn read_string(env: &mut JNIEnv, value: &JString) -> String {
     env.get_string(value)
         .map(Into::into)
         .unwrap_or_else(|_| String::new())
+}
+
+/// Builds the Java string returned across the JNI boundary.
+fn new_string(env: &mut JNIEnv, value: String) -> jstring {
+    env.new_string(value)
+        .map(JString::into_raw)
+        .unwrap_or(core::ptr::null_mut())
+}
+
+/// Clears any pending Java exception and renders a message.
+fn clear_and_fail(env: &mut JNIEnv, op: &str, err: jni::errors::Error) -> String {
+    env.exception_clear().ok();
+    format!("{op} failed: {err}")
 }
 
 fn bytes_to_string(bytes: &[u8]) -> String {
