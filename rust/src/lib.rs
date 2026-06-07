@@ -62,6 +62,7 @@ use jni::{
     JNIEnv,
 };
 use mail_parser::{MessageParser, MessagePart, MimeHeaders, PartType};
+use rfc2047_decoder::{Decoder, RecoverStrategy};
 use serde::Serialize;
 
 /// Matches io-imap's own fragmentizer ceiling (100 MiB per message).
@@ -569,7 +570,7 @@ fn hit_from(items: Vec<MessageDataItem<'static>>) -> Hit {
             MessageDataItem::Uid(value) => uid = value.get(),
             MessageDataItem::Envelope(envelope) => {
                 if let Some(value) = envelope.subject.into_option() {
-                    subject = bytes_to_string(value.as_ref());
+                    subject = decode_subject(value.as_ref());
                 }
                 if let Some(value) = envelope.date.into_option() {
                     date = bytes_to_string(value.as_ref());
@@ -700,6 +701,15 @@ fn clear_and_fail(env: &mut JNIEnv, op: &str, err: jni::errors::Error) -> String
 
 fn bytes_to_string(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Decodes RFC 2047 encoded-words in a Subject header, falling back to
+/// a lossy UTF-8 read when the input is malformed.
+fn decode_subject(bytes: &[u8]) -> String {
+    Decoder::new()
+        .too_long_encoded_word_strategy(RecoverStrategy::Decode)
+        .decode(bytes)
+        .unwrap_or_else(|_| bytes_to_string(bytes))
 }
 
 fn error_json(message: &str) -> String {
