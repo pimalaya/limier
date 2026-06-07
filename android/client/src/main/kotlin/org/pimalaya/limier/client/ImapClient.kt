@@ -19,6 +19,8 @@ package org.pimalaya.limier.client
 
 import java.util.Collections
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import org.json.JSONArray
@@ -26,6 +28,11 @@ import org.json.JSONObject
 
 /** Raised when the IMAP session itself fails (connection, auth, ...). */
 class ImapException(message: String) : Exception(message)
+
+/** Returned by [ImapClient.search]; [cancel] stops the running search. */
+fun interface SearchHandle {
+    fun cancel()
+}
 
 /**
  * Streamed search results. Callbacks arrive on background worker
@@ -36,20 +43,36 @@ interface SearchListener {
     /** One mailbox's hits, as soon as that mailbox finishes. */
     fun onMailbox(hits: MailboxHits)
 
-    /** Called once when the whole search ends; [error] is null on success. */
+    /** [done] of [total] mailboxes processed (hits or not). */
+    fun onProgress(done: Int, total: Int)
+
+    /** Called once when the search ends; [error] is null on success or cancel. */
     fun onFinished(error: String?)
 }
 
 /**
- * The only surface the app needs. [search] lists the mailboxes once,
- * then fans the search out across several TLS connections in parallel,
- * forwarding each mailbox's hits through [SearchListener] as it arrives.
- * Owns all sockets and the Rust bridge; the app sees neither.
- *
- * Blocking: call [search] off the main thread.
+ * The only surface the app needs. [search] returns immediately and runs
+ * asynchronously: it lists the mailboxes once, then fans the search out
+ * across several TLS connections in parallel, forwarding each mailbox's
+ * hits through [SearchListener] as it arrives. Owns all sockets and the
+ * Rust bridge; the app sees neither.
  */
 class ImapClient {
-    fun search(account: Account, keywords: String, listener: SearchListener) {
+    private val coordinators = Executors.newCachedThreadPool()
+
+    /** Starts a search and returns a handle to cancel it. */
+    fun search(account: Account, keywords: String, listener: SearchListener): SearchHandle {
+        val cancelled = AtomicBoolean(false)
+        coordinators.execute { runSearch(account, keywords, listener, cancelled) }
+        return SearchHandle { cancelled.set(true) }
+    }
+
+    private fun runSearch(
+        account: Account,
+        keywords: String,
+        listener: SearchListener,
+        cancelled: AtomicBoolean,
+    ) {
         val mailboxes =
             try {
                 listMailboxes(account)
@@ -58,10 +81,12 @@ class ImapClient {
                 return
             }
 
-        if (mailboxes.isEmpty()) {
+        if (cancelled.get() || mailboxes.isEmpty()) {
             listener.onFinished(null)
             return
         }
+
+        listener.onProgress(0, mailboxes.size)
 
         val workerCount = minOf(WORKERS, mailboxes.size)
         val buckets =
@@ -71,13 +96,23 @@ class ImapClient {
 
         val pool = Executors.newFixedThreadPool(workerCount)
         val errors = Collections.synchronizedList(mutableListOf<String>())
+        val done = AtomicInteger(0)
 
         try {
             buckets
                 .map { bucket ->
                     pool.submit {
                         try {
-                            searchBucket(account, bucket, keywords, listener)
+                            searchBucket(
+                                account,
+                                bucket,
+                                keywords,
+                                cancelled,
+                                onHits = { hits -> listener.onMailbox(hits) },
+                                onAdvance = {
+                                    listener.onProgress(done.incrementAndGet(), mailboxes.size)
+                                },
+                            )
                         } catch (error: Exception) {
                             errors.add(error.message ?: "Worker failed")
                         }
@@ -88,7 +123,7 @@ class ImapClient {
             pool.shutdown()
         }
 
-        listener.onFinished(errors.firstOrNull())
+        listener.onFinished(if (cancelled.get()) null else errors.firstOrNull())
     }
 
     private fun listMailboxes(account: Account): List<String> =
@@ -112,14 +147,16 @@ class ImapClient {
         account: Account,
         mailboxes: List<String>,
         keywords: String,
-        listener: SearchListener,
+        cancelled: AtomicBoolean,
+        onHits: (MailboxHits) -> Unit,
+        onAdvance: () -> Unit,
     ) {
         if (mailboxes.isEmpty()) {
             return
         }
 
         withConnection(account) { transport ->
-            val sink = MailboxSink { hits -> listener.onMailbox(hits) }
+            val sink = NativeSink(cancelled, onHits, onAdvance)
             val error =
                 Native.searchMailboxes(
                     transport,

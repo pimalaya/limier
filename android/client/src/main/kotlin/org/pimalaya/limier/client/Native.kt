@@ -23,8 +23,8 @@ package org.pimalaya.limier.client
  *
  * - [listMailboxes] returns a JSON array of selectable mailbox names,
  *   or `{"error": ".."}`.
- * - [searchMailboxes] streams each non-empty mailbox to [sink] via
- *   `onMailbox(String)`, and returns an empty string on success or an
+ * - [searchMailboxes] drives [sink] (onMailbox / onProgress / shouldStop)
+ *   mailbox by mailbox, and returns an empty string on success or an
  *   error message.
  */
 internal object Native {
@@ -48,6 +48,6 @@ internal object Native {
         sasl: String,
         mailboxes: String,
         keywords: String,
-        sink: MailboxSink,
+        sink: NativeSink,
     ): String
 }

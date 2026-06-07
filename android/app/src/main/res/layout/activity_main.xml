@@ -9,4 +9,6 @@
 
     <include layout="@layout/panel_main" />
 
+    <include layout="@layout/panel_detail" />
+
 </ViewFlipper>

@@ -20,38 +20,50 @@ package org.pimalaya.limier
 import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
+import android.graphics.Typeface
 import android.os.Looper
+import android.util.TypedValue
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Spinner
+import android.widget.TableLayout
+import android.widget.TableRow
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ViewFlipper
-import java.util.concurrent.Executors
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import org.pimalaya.limier.client.Account
+import org.pimalaya.limier.client.Hit
 import org.pimalaya.limier.client.ImapClient
 import org.pimalaya.limier.client.MailboxHits
 import org.pimalaya.limier.client.Sasl
+import org.pimalaya.limier.client.SearchHandle
 import org.pimalaya.limier.client.SearchListener
 
 /**
- * Single-activity host. The config panel and the merged search/results
- * panel are swapped through a [ViewFlipper]. Search runs through
- * [ImapClient] off the main thread and streams mailbox sections into
- * the results list as they arrive; each section folds independently.
+ * Single-activity host. Config, the merged search/results panel and a
+ * message detail panel are swapped through a [ViewFlipper]. Search runs
+ * through [ImapClient] and streams foldable per-mailbox tables in as
+ * they arrive; a progress bar tracks coverage and the search button
+ * doubles as a stop button.
  */
 class MainActivity : Activity() {
     private val client = ImapClient()
-    private val background = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private val dateFormat = SimpleDateFormat("dd/MM/yy, HH:mm", Locale.getDefault())
 
     private lateinit var store: SecureStore
     private lateinit var flipper: ViewFlipper
 
+    private var handle: SearchHandle? = null
+    private var searching = false
     private var matchCount = 0
     private var mailboxCount = 0
 
@@ -64,6 +76,7 @@ class MainActivity : Activity() {
 
         setUpConfigPanel()
         setUpMainPanel()
+        findViewById<Button>(R.id.detail_back).setOnClickListener { show(PANEL_MAIN) }
 
         if (store.load() != null) {
             show(PANEL_MAIN)
@@ -71,8 +84,16 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        background.shutdownNow()
+        handle?.cancel()
         super.onDestroy()
+    }
+
+    override fun onBackPressed() {
+        if (flipper.displayedChild == PANEL_DETAIL) {
+            show(PANEL_MAIN)
+        } else {
+            super.onBackPressed()
+        }
     }
 
     private fun setUpConfigPanel() {
@@ -113,11 +134,13 @@ class MainActivity : Activity() {
     private fun setUpMainPanel() {
         val keywords = findViewById<EditText>(R.id.search_keywords)
 
-        findViewById<Button>(R.id.search_submit).setOnClickListener { startSearch() }
+        findViewById<Button>(R.id.search_submit).setOnClickListener {
+            if (searching) stopSearch() else startSearch()
+        }
         findViewById<Button>(R.id.search_edit_account).setOnClickListener { show(PANEL_CONFIG) }
 
         keywords.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH && !searching) {
                 startSearch()
                 true
             } else {
@@ -139,19 +162,12 @@ class MainActivity : Activity() {
             return
         }
 
-        val container = findViewById<LinearLayout>(R.id.results_container)
-        val status = findViewById<TextView>(R.id.search_status)
-        val progress = findViewById<ProgressBar>(R.id.search_progress)
-        val submit = findViewById<Button>(R.id.search_submit)
-
-        container.removeAllViews()
+        findViewById<LinearLayout>(R.id.results_container).removeAllViews()
         matchCount = 0
         mailboxCount = 0
-        status.text = getString(R.string.search_running)
-        progress.visibility = View.VISIBLE
-        submit.isEnabled = false
+        setRunning(true)
 
-        background.execute {
+        handle =
             client.search(
                 account,
                 query,
@@ -161,15 +177,23 @@ class MainActivity : Activity() {
                             addSection(hits)
                             matchCount += hits.hits.size
                             mailboxCount++
-                            status.text = liveSummary()
+                            findViewById<TextView>(R.id.search_status).text = liveSummary()
+                        }
+                    }
+
+                    override fun onProgress(done: Int, total: Int) {
+                        main.post {
+                            val progress = findViewById<ProgressBar>(R.id.search_progress)
+                            progress.isIndeterminate = false
+                            progress.max = total
+                            progress.progress = done
                         }
                     }
 
                     override fun onFinished(error: String?) {
                         main.post {
-                            progress.visibility = View.GONE
-                            submit.isEnabled = true
-                            status.text =
+                            setRunning(false)
+                            findViewById<TextView>(R.id.search_status).text =
                                 when {
                                     matchCount > 0 -> liveSummary()
                                     error != null -> error
@@ -179,28 +203,36 @@ class MainActivity : Activity() {
                     }
                 },
             )
+    }
+
+    private fun stopSearch() {
+        handle?.cancel()
+    }
+
+    /** Flips the search button into a stop button and locks the input. */
+    private fun setRunning(running: Boolean) {
+        searching = running
+
+        val submit = findViewById<Button>(R.id.search_submit)
+        val keywords = findViewById<EditText>(R.id.search_keywords)
+        val progress = findViewById<ProgressBar>(R.id.search_progress)
+
+        submit.setText(if (running) R.string.search_stop else R.string.search_submit)
+        keywords.isEnabled = !running
+
+        if (running) {
+            progress.isIndeterminate = true
+            progress.visibility = View.VISIBLE
+            findViewById<TextView>(R.id.search_status).text = getString(R.string.search_running)
+        } else {
+            progress.visibility = View.GONE
         }
     }
 
-    /** Appends a foldable section for one mailbox's hits. */
+    /** Appends a foldable section: a clickable header over a scrollable table. */
     private fun addSection(hits: MailboxHits) {
         val container = findViewById<LinearLayout>(R.id.results_container)
-
-        val body =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), 0, 0, dp(4))
-            }
-        for (hit in hits.hits) {
-            val subject = hit.subject.ifEmpty { getString(R.string.results_no_subject) }
-            body.addView(
-                TextView(this).apply {
-                    text = "$subject\n${hit.date}  ·  UID ${hit.uid}"
-                    setTextAppearance(R.style.HitRow)
-                    setPadding(0, dp(4), 0, dp(4))
-                }
-            )
-        }
+        val table = buildTable(hits.hits)
 
         val header =
             TextView(this).apply {
@@ -209,21 +241,79 @@ class MainActivity : Activity() {
                 isClickable = true
             }
         fun render() {
-            val arrow = if (body.visibility == View.VISIBLE) "▾" else "▸"
+            val arrow = if (table.visibility == View.VISIBLE) "▾" else "▸"
             header.text = "$arrow ${hits.mailbox}  (${hits.hits.size})"
         }
         render()
         header.setOnClickListener {
-            body.visibility = if (body.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            table.visibility = if (table.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             render()
         }
 
         container.addView(header)
-        container.addView(body)
+        container.addView(table)
     }
+
+    /** A horizontally scrollable UID / Subject / Date table. */
+    private fun buildTable(hits: List<Hit>): View {
+        val table =
+            TableLayout(this).apply {
+                addView(
+                    row(
+                        cell(getString(R.string.column_uid), bold = true),
+                        cell(getString(R.string.column_subject), bold = true),
+                        cell(getString(R.string.column_date), bold = true),
+                    )
+                )
+            }
+
+        for (hit in hits) {
+            val subject = hit.subject.ifEmpty { getString(R.string.results_no_subject) }
+            val tableRow =
+                row(
+                    cell(hit.uid.toString()),
+                    cell(subject),
+                    cell(formatDate(hit)),
+                )
+            tableRow.isClickable = true
+            tableRow.setBackgroundResource(selectableItemBackground())
+            tableRow.setOnClickListener { showDetail(hit) }
+            table.addView(tableRow)
+        }
+
+        return HorizontalScrollView(this).apply { addView(table) }
+    }
+
+    private fun row(vararg cells: TextView): TableRow =
+        TableRow(this).apply { cells.forEach { addView(it) } }
+
+    private fun cell(text: String, bold: Boolean = false): TextView =
+        TextView(this).apply {
+            this.text = text
+            isSingleLine = true
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            if (bold) setTypeface(typeface, Typeface.BOLD)
+        }
+
+    private fun showDetail(hit: Hit) {
+        findViewById<TextView>(R.id.detail_uid).text = hit.uid.toString()
+        findViewById<TextView>(R.id.detail_subject).text =
+            hit.subject.ifEmpty { getString(R.string.results_no_subject) }
+        findViewById<TextView>(R.id.detail_date).text = formatDate(hit)
+        show(PANEL_DETAIL)
+    }
+
+    private fun formatDate(hit: Hit): String =
+        if (hit.timestamp > 0) dateFormat.format(Date(hit.timestamp * 1000)) else hit.date
 
     private fun liveSummary(): String =
         getString(R.string.results_live, matchCount, mailboxCount)
+
+    private fun selectableItemBackground(): Int {
+        val value = TypedValue()
+        theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)
+        return value.resourceId
+    }
 
     private fun show(panel: Int) {
         flipper.displayedChild = panel
@@ -238,6 +328,7 @@ class MainActivity : Activity() {
     private companion object {
         const val PANEL_CONFIG = 0
         const val PANEL_MAIN = 1
+        const val PANEL_DETAIL = 2
         const val DEFAULT_PORT = 993
     }
 }

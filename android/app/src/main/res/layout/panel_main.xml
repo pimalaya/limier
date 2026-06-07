@@ -29,20 +29,19 @@
 
     </LinearLayout>
 
-    <LinearLayout
+    <ProgressBar
+        android:id="@+id/search_progress"
+        style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="4dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal">
-
-        <ProgressBar
-            android:id="@+id/search_progress"
-            style="?android:attr/progressBarStyleSmall"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:visibility="gone" />
 
         <TextView
             android:id="@+id/search_status"

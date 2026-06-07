@@ -17,15 +17,24 @@
 
 package org.pimalaya.limier.client
 
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
 
 /**
- * Receives one mailbox of hits at a time from the Rust bridge. The
- * native code calls [onMailbox] by name, so it stays public (no Kotlin
- * mangling) for JNI lookup. A malformed payload is dropped rather than
- * thrown back across the boundary.
+ * The control surface the Rust bridge drives, one mailbox at a time.
+ * All three methods are called by name from native code, so they stay
+ * public (no Kotlin mangling) for JNI lookup:
+ *
+ * - [onMailbox] receives a mailbox that has hits (a malformed payload
+ *   is dropped rather than thrown back across the boundary),
+ * - [onProgress] fires once per mailbox processed (with or without hits),
+ * - [shouldStop] is polled before each mailbox to honour cancellation.
  */
-internal class MailboxSink(private val emit: (MailboxHits) -> Unit) {
+internal class NativeSink(
+    private val cancelled: AtomicBoolean,
+    private val onHits: (MailboxHits) -> Unit,
+    private val onAdvance: () -> Unit,
+) {
     fun onMailbox(json: String) {
         val hits =
             try {
@@ -33,8 +42,12 @@ internal class MailboxSink(private val emit: (MailboxHits) -> Unit) {
             } catch (_: Exception) {
                 return
             }
-        emit(hits)
+        onHits(hits)
     }
+
+    fun onProgress() = onAdvance()
+
+    fun shouldStop(): Boolean = cancelled.get()
 
     private fun parse(json: String): MailboxHits {
         val obj = JSONObject(json)
@@ -49,6 +62,7 @@ internal class MailboxSink(private val emit: (MailboxHits) -> Unit) {
                         uid = hit.getLong("uid"),
                         subject = hit.getString("subject"),
                         date = hit.getString("date"),
+                        timestamp = hit.getLong("timestamp"),
                     )
                 },
         )

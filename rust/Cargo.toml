@@ -1,6 +1,6 @@
-# limier JNI bridge: a cdylib turning io-imap's sans-io coroutines
-# into a single `search` entry point for the Android :client module.
-# Scoped to the client; the :app module never depends on it.
+# limier JNI bridge: a cdylib turning io-imap's sans-io coroutines into
+# listMailboxes + streaming searchMailboxes entry points for the Android
+# :client module. Scoped to the client; the :app module never depends on it.
 
 [package]
 name = "limier"
@@ -21,3 +21,5 @@ io-imap = { version = "0.1", default-features = false }
 jni = "0.21"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Parses the ENVELOPE Date header to an epoch the UI formats locally.
+chrono = { version = "0.4", default-features = false, features = ["alloc"] }

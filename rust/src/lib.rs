@@ -31,6 +31,7 @@
 //! Each call owns one connection, so the client runs several in
 //! parallel; results (UID + subject + date) surface mailbox by mailbox.
 
+use chrono::DateTime;
 use io_imap::{
     codec::fragmentizer::Fragmentizer,
     coroutine::{ImapCoroutine, ImapCoroutineState, ImapYield},
@@ -64,12 +65,15 @@ use serde::Serialize;
 /// Matches io-imap's own fragmentizer ceiling (100 MiB per message).
 const MAX_MESSAGE_SIZE: u32 = 100 * 1024 * 1024;
 
-/// One matching message, as shown by the results screen.
+/// One matching message, as shown by the results screen. `timestamp`
+/// is the Date header as Unix seconds (0 when unparseable); the UI
+/// formats it locally and falls back to the raw `date`.
 #[derive(Serialize)]
 struct Hit {
     uid: u32,
     subject: String,
     date: String,
+    timestamp: i64,
 }
 
 /// Search hits for a single mailbox; the streaming callback payload.
@@ -206,17 +210,24 @@ fn search_mailboxes(
     open_session(env, transport, &mut fragmentizer, credentials)?;
 
     for name in mailboxes {
-        let hits = match search_one(env, transport, &mut fragmentizer, name, keywords) {
-            Ok(hits) if !hits.is_empty() => hits,
-            _ => continue,
-        };
+        if should_stop(env, listener)? {
+            break;
+        }
 
-        let payload = MailboxHits {
-            mailbox: name.clone(),
-            hits,
-        };
-        let json = serde_json::to_string(&payload).map_err(|err| err.to_string())?;
-        emit(env, listener, &json)?;
+        // A bad mailbox is treated as empty: still counted for progress,
+        // never fatal to the rest of the sweep.
+        let hits =
+            search_one(env, transport, &mut fragmentizer, name, keywords).unwrap_or_default();
+        if !hits.is_empty() {
+            let payload = MailboxHits {
+                mailbox: name.clone(),
+                hits,
+            };
+            let json = serde_json::to_string(&payload).map_err(|err| err.to_string())?;
+            emit_mailbox(env, listener, &json)?;
+        }
+
+        emit_progress(env, listener)?;
     }
 
     Ok(())
@@ -398,7 +409,16 @@ fn hit_from(items: Vec<MessageDataItem<'static>>) -> Hit {
         }
     }
 
-    Hit { uid, subject, date }
+    let timestamp = DateTime::parse_from_rfc2822(date.trim())
+        .map(|parsed| parsed.timestamp())
+        .unwrap_or(0);
+
+    Hit {
+        uid,
+        subject,
+        date,
+        timestamp,
+    }
 }
 
 /// Drives a standard-shape coroutine to completion, servicing every
@@ -453,7 +473,7 @@ fn transport_write(env: &mut JNIEnv, transport: &JObject, bytes: &[u8]) -> Resul
 }
 
 /// Hands one mailbox's JSON to the Kotlin listener's `onMailbox`.
-fn emit(env: &mut JNIEnv, listener: &JObject, json: &str) -> Result<(), String> {
+fn emit_mailbox(env: &mut JNIEnv, listener: &JObject, json: &str) -> Result<(), String> {
     let payload = env.new_string(json).map_err(|err| err.to_string())?;
     env.call_method(
         listener,
@@ -461,8 +481,23 @@ fn emit(env: &mut JNIEnv, listener: &JObject, json: &str) -> Result<(), String> 
         "(Ljava/lang/String;)V",
         &[(&payload).into()],
     )
-    .map_err(|err| clear_and_fail(env, "listener callback", err))?;
+    .map_err(|err| clear_and_fail(env, "listener onMailbox", err))?;
     Ok(())
+}
+
+/// Tells the Kotlin listener one more mailbox has been processed.
+fn emit_progress(env: &mut JNIEnv, listener: &JObject) -> Result<(), String> {
+    env.call_method(listener, "onProgress", "()V", &[])
+        .map_err(|err| clear_and_fail(env, "listener onProgress", err))?;
+    Ok(())
+}
+
+/// Asks the Kotlin listener whether the search has been cancelled.
+fn should_stop(env: &mut JNIEnv, listener: &JObject) -> Result<bool, String> {
+    env.call_method(listener, "shouldStop", "()Z", &[])
+        .map_err(|err| clear_and_fail(env, "listener shouldStop", err))?
+        .z()
+        .map_err(|err| err.to_string())
 }
 
 /// IMAP `Mailbox` to its display/group name.

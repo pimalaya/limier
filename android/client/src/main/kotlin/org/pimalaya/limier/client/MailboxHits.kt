@@ -23,9 +23,14 @@ data class MailboxHits(
     val hits: List<Hit>,
 )
 
-/** One matching message: UID plus what the results panel displays. */
+/**
+ * One matching message. [timestamp] is the Date header as Unix seconds
+ * (0 when unparseable); the UI formats it locally and falls back to the
+ * raw [date].
+ */
 data class Hit(
     val uid: Long,
     val subject: String,
     val date: String,
+    val timestamp: Long,
 )

@@ -11,7 +11,9 @@
     void write(byte[]);
 }
 
-# MailboxSink.onMailbox is the streaming callback invoked from native.
--keep class org.pimalaya.limier.client.MailboxSink {
+# NativeSink is driven from native code, one method per mailbox.
+-keep class org.pimalaya.limier.client.NativeSink {
     void onMailbox(java.lang.String);
+    void onProgress();
+    boolean shouldStop();
 }

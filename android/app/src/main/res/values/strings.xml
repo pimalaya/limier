@@ -14,6 +14,7 @@
 
     <string name="search_hint">Keywords (matched across every field)</string>
     <string name="search_submit">Search</string>
+    <string name="search_stop">Stop</string>
     <string name="search_edit_account">Edit account</string>
     <string name="search_empty">Enter at least one keyword</string>
     <string name="search_running">Searching every mailbox</string>
@@ -21,6 +22,15 @@
     <string name="results_live">%1$d match(es) in %2$d mailbox(es)</string>
     <string name="results_none">No message matched.</string>
     <string name="results_no_subject">(no subject)</string>
+
+    <string name="column_uid">UID</string>
+    <string name="column_subject">Subject</string>
+    <string name="column_date">Date</string>
+
+    <string name="detail_back">Back to results</string>
+    <string name="detail_uid_label">UID</string>
+    <string name="detail_subject_label">Subject</string>
+    <string name="detail_date_label">Date</string>
 
     <string-array name="sasl_mechanisms">
         <item>PLAIN</item>
