@@ -23,6 +23,7 @@
     <string name="back_action">Back</string>
     <string name="search_empty">Enter at least one keyword</string>
     <string name="search_running">Searching every mailbox</string>
+    <string name="search_stopped">Search stopped</string>
 
     <string name="results_live">%1$d match(es) in %2$d mailbox(es)</string>
     <string name="results_none">No message matched.</string>

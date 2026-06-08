@@ -64,8 +64,14 @@ class ImapClient {
     /** Starts a search and returns a handle to cancel it. */
     fun search(account: Account, keywords: String, listener: SearchListener): SearchHandle {
         val cancelled = AtomicBoolean(false)
-        coordinators.execute { runSearch(account, keywords, listener, cancelled) }
-        return SearchHandle { cancelled.set(true) }
+        val live = Collections.synchronizedList(mutableListOf<SSLSocket>())
+        coordinators.execute { runSearch(account, keywords, listener, cancelled, live) }
+        return SearchHandle {
+            cancelled.set(true)
+            // Close the live sockets so any blocked read unwinds at once,
+            // instead of waiting for the current mailbox to finish.
+            synchronized(live) { live.toList() }.forEach { runCatching { it.close() } }
+        }
     }
 
     private fun runSearch(
@@ -73,12 +79,13 @@ class ImapClient {
         keywords: String,
         listener: SearchListener,
         cancelled: AtomicBoolean,
+        live: MutableList<SSLSocket>,
     ) {
         val mailboxes =
             try {
-                listMailboxes(account)
+                listMailboxes(account, live)
             } catch (error: Exception) {
-                listener.onFinished(error.message ?: "Listing mailboxes failed")
+                listener.onFinished(if (cancelled.get()) null else error.message ?: "Listing mailboxes failed")
                 return
             }
 
@@ -109,6 +116,7 @@ class ImapClient {
                                 bucket,
                                 keywords,
                                 cancelled,
+                                live,
                                 onHits = { hits -> listener.onMailbox(hits) },
                                 onAdvance = {
                                     listener.onProgress(done.incrementAndGet(), mailboxes.size)
@@ -186,8 +194,11 @@ class ImapClient {
         }
     }
 
-    private fun listMailboxes(account: Account): List<String> =
-        withConnection(account) { transport ->
+    private fun listMailboxes(
+        account: Account,
+        live: MutableList<SSLSocket>? = null,
+    ): List<String> =
+        withConnection(account, live) { transport ->
             val json =
                 Native.listMailboxes(transport, account.login, account.password, account.sasl.name)
             val trimmed = json.trim()
@@ -208,6 +219,7 @@ class ImapClient {
         mailboxes: List<String>,
         keywords: String,
         cancelled: AtomicBoolean,
+        live: MutableList<SSLSocket>,
         onHits: (MailboxHits) -> Unit,
         onAdvance: () -> Unit,
     ) {
@@ -215,7 +227,7 @@ class ImapClient {
             return
         }
 
-        withConnection(account) { transport ->
+        withConnection(account, live) { transport ->
             val sink = NativeSink(cancelled, onHits, onAdvance)
             val error =
                 Native.searchMailboxes(
@@ -233,14 +245,27 @@ class ImapClient {
         }
     }
 
-    private fun <T> withConnection(account: Account, block: (Transport) -> T): T {
+    /**
+     * Opens a TLS session for [block]. When [live] is given the socket is
+     * registered for the duration, so a cancelling caller can close it and
+     * unblock a read in flight.
+     */
+    private fun <T> withConnection(
+        account: Account,
+        live: MutableList<SSLSocket>? = null,
+        block: (Transport) -> T,
+    ): T {
         val socket =
             SSLSocketFactory.getDefault().createSocket(account.domain, account.port) as SSLSocket
+        live?.add(socket)
 
-        socket.use { connected ->
-            connected.soTimeout = SOCKET_TIMEOUT_MS
-            connected.startHandshake()
-            return block(Transport(connected))
+        try {
+            socket.soTimeout = SOCKET_TIMEOUT_MS
+            socket.startHandshake()
+            return block(Transport(socket))
+        } finally {
+            live?.remove(socket)
+            runCatching { socket.close() }
         }
     }
 

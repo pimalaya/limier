@@ -21,7 +21,7 @@ The app has three frames under a shared top bar, navigated as a back stack (the 
 2. **Search** (root once credentials exist): one search bar. Keywords are whitespace-split, each turned into an IMAP `TEXT` key (matching the whole message, header and body), and OR-folded so a hit on any keyword counts; matches are grouped by mailbox, showing UID, subject and date.
 3. **Message**: pushed when a result is tapped, showing the fetched message parsed into foldable MIME parts.
 
-Under the hood each mailbox is walked with `SELECT`, then `UID SEARCH`, then `UID FETCH ENVELOPE` for the matches. A folder that cannot be selected is skipped, so one bad mailbox never aborts the sweep.
+Under the hood each mailbox is walked read-only with `EXAMINE`, then `UID SEARCH`, then `UID FETCH ENVELOPE` for the matches. A folder that cannot be examined is skipped, so one bad mailbox never aborts the sweep.
 
 ## Architecture
 

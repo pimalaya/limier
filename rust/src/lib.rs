@@ -24,7 +24,7 @@
 //!
 //! - `listMailboxes`: greeting, SASL auth, LIST; returns selectable
 //!   mailbox names as a JSON array (or `{"error": ".."}`).
-//! - `searchMailboxes`: greeting, SASL auth, then SELECT + UID SEARCH +
+//! - `searchMailboxes`: greeting, SASL auth, then EXAMINE + UID SEARCH +
 //!   UID FETCH ENVELOPE over an assigned subset of mailboxes, streaming
 //!   each non-empty mailbox to a Kotlin listener as it completes.
 //!
@@ -37,11 +37,11 @@ use io_imap::{
     codec::fragmentizer::Fragmentizer,
     coroutine::{ImapCoroutine, ImapCoroutineState, ImapYield},
     rfc3501::{
+        examine::{ImapMailboxExamine, ImapMailboxExamineOptions},
         fetch::{ImapMessageFetch, ImapMessageFetchOptions},
         greeting::{ImapGreetingGet, ImapGreetingGetOptions},
         list::ImapMailboxList,
         search::{ImapMessageSearch, ImapMessageSearchOptions},
-        select::{ImapMailboxSelect, ImapMailboxSelectOptions},
     },
     sasl::{
         auth_login::{ImapAuthLogin, ImapAuthLoginOptions},
@@ -139,7 +139,7 @@ pub extern "system" fn Java_org_pimalaya_limier_client_Native_listMailboxes<'loc
 }
 
 /// `Native.searchMailboxes`: greeting, auth, then per assigned mailbox
-/// SELECT + UID SEARCH + UID FETCH ENVELOPE, calling `listener`'s
+/// EXAMINE + UID SEARCH + UID FETCH ENVELOPE, calling `listener`'s
 /// `onMailbox(String)` for each mailbox that has hits. Returns an empty
 /// string on success, or an error message.
 #[no_mangle]
@@ -181,7 +181,7 @@ pub extern "system" fn Java_org_pimalaya_limier_client_Native_searchMailboxes<'l
     new_string(&mut env, message)
 }
 
-/// `Native.fetchMessage`: greeting, auth, SELECT, UID FETCH BODY.PEEK[],
+/// `Native.fetchMessage`: greeting, auth, EXAMINE, UID FETCH BODY.PEEK[],
 /// then mail-parser. Returns `{"parts": [..]}` or `{"error": ".."}`.
 #[no_mangle]
 pub extern "system" fn Java_org_pimalaya_limier_client_Native_fetchMessage<'local>(
@@ -245,7 +245,7 @@ fn list_mailboxes(
 }
 
 /// Greeting, auth, then a streamed search over the assigned mailboxes.
-/// A mailbox that fails to SELECT/SEARCH is skipped, never fatal.
+/// A mailbox that fails to EXAMINE/SEARCH is skipped, never fatal.
 fn search_mailboxes(
     env: &mut JNIEnv,
     transport: &JObject,
@@ -282,7 +282,7 @@ fn search_mailboxes(
     Ok(())
 }
 
-/// SELECT, UID SEARCH, UID FETCH ENVELOPE for one mailbox.
+/// EXAMINE, UID SEARCH, UID FETCH ENVELOPE for one mailbox.
 fn search_one(
     env: &mut JNIEnv,
     transport: &JObject,
@@ -295,14 +295,14 @@ fn search_one(
         .try_into()
         .map_err(|_| format!("Invalid mailbox `{name}`"))?;
 
-    let select = drive(
+    let examine = drive(
         env,
         transport,
         fragmentizer,
-        ImapMailboxSelect::new(mailbox, ImapMailboxSelectOptions::default()),
+        ImapMailboxExamine::new(mailbox, ImapMailboxExamineOptions::default()),
     )?;
 
-    if select.exists.unwrap_or(0) == 0 {
+    if examine.exists.unwrap_or(0) == 0 {
         return Ok(Vec::new());
     }
 
@@ -360,7 +360,7 @@ fn search_one(
     Ok(hits)
 }
 
-/// SELECT the mailbox, UID FETCH the full raw message (BODY.PEEK[], so
+/// EXAMINE the mailbox, UID FETCH the full raw message (BODY.PEEK[], so
 /// `\Seen` is untouched), and parse it into MIME parts.
 fn fetch_message(
     env: &mut JNIEnv,
@@ -381,7 +381,7 @@ fn fetch_message(
         env,
         transport,
         &mut fragmentizer,
-        ImapMailboxSelect::new(selected, ImapMailboxSelectOptions::default()),
+        ImapMailboxExamine::new(selected, ImapMailboxExamineOptions::default()),
     )?;
 
     let sequence_set: SequenceSet = uid

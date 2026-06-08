@@ -2,6 +2,12 @@
 <!-- limier - AGPL-3.0-or-later - Copyright (C) 2026 Clement DOUIN -->
 <resources>
 
+    <!-- Frame heading (h2); the top bar title is the h1. -->
+    <style name="FrameTitle">
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
     <style name="MailboxHeader">
         <item name="android:textStyle">bold</item>
         <item name="android:textSize">16sp</item>

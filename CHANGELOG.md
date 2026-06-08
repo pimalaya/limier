@@ -21,4 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Verified the IMAP connection on auth submit before persisting credentials and resetting the stack to the search frame.
 - Pinned the auth submit button to the bottom of the frame so it stays visible while the form scrolls.
 - Replaced the long search-field hint with a short placeholder, adding a heading and a one-paragraph description of the search above the field.
-- Added visible borders to the per-mailbox result tables.
+- Gave the search and auth frame headings a shared h2 style, distinct from the top bar h1.
+- Anchored the search progress bar flush against the top bar in the bar colour at a fixed height, so it reads as the bar's edge and never shifts the content.
+- Made stopping a search instant: cancelling closes the live sockets so blocked reads unwind at once, and the UI flips back without waiting for the workers, dropping any late callbacks.
+- Drew the per-mailbox result tables with single grid lines instead of accumulating per-cell borders.
+- Switched mailbox opening from `SELECT` to read-only `EXAMINE` for searching and fetching, since limier only consults messages.

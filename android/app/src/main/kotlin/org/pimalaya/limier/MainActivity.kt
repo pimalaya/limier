@@ -77,6 +77,7 @@ class MainActivity : Activity() {
 
     private var handle: SearchHandle? = null
     private var searching = false
+    private var searchGeneration = 0
     private var matchCount = 0
     private var mailboxCount = 0
     private var pendingDownload: MessagePart? = null
@@ -228,6 +229,10 @@ class MainActivity : Activity() {
         mailboxCount = 0
         setRunning(true)
 
+        // Stamps this run so callbacks from a stopped or superseded search
+        // are dropped instead of clobbering the current UI.
+        val generation = ++searchGeneration
+
         handle =
             client.search(
                 account,
@@ -235,6 +240,7 @@ class MainActivity : Activity() {
                 object : SearchListener {
                     override fun onMailbox(hits: MailboxHits) {
                         main.post {
+                            if (generation != searchGeneration) return@post
                             addSection(hits)
                             matchCount += hits.hits.size
                             mailboxCount++
@@ -244,6 +250,7 @@ class MainActivity : Activity() {
 
                     override fun onProgress(done: Int, total: Int) {
                         main.post {
+                            if (generation != searchGeneration) return@post
                             val progress = findViewById<ProgressBar>(R.id.search_progress)
                             progress.isIndeterminate = false
                             progress.max = total
@@ -253,6 +260,7 @@ class MainActivity : Activity() {
 
                     override fun onFinished(error: String?) {
                         main.post {
+                            if (generation != searchGeneration) return@post
                             setRunning(false)
                             findViewById<TextView>(R.id.search_status).text =
                                 when {
@@ -266,8 +274,13 @@ class MainActivity : Activity() {
             )
     }
 
+    /** Cancels the search and flips the UI back at once, without waiting for the workers to wind down. */
     private fun stopSearch() {
+        searchGeneration++
         handle?.cancel()
+        handle = null
+        setRunning(false)
+        findViewById<TextView>(R.id.search_status).text = getString(R.string.search_stopped)
     }
 
     /** Flips the search button into a stop button and locks the input. */
@@ -283,10 +296,12 @@ class MainActivity : Activity() {
 
         if (running) {
             progress.isIndeterminate = true
-            progress.visibility = View.VISIBLE
             findViewById<TextView>(R.id.search_status).text = getString(R.string.search_running)
         } else {
-            progress.visibility = View.GONE
+            // Settle the bar back to its idle, empty state without collapsing
+            // it, so the layout never shifts.
+            progress.isIndeterminate = false
+            progress.progress = 0
         }
     }
 
@@ -300,6 +315,7 @@ class MainActivity : Activity() {
     private fun buildTable(mailbox: String, hits: List<Hit>): View {
         val table =
             TableLayout(this).apply {
+                setBackgroundResource(R.drawable.table_border)
                 addView(
                     row(
                         cell(getString(R.string.column_uid), bold = true),
