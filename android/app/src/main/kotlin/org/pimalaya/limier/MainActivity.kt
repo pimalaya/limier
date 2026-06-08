@@ -65,7 +65,7 @@ class MainActivity : Activity() {
     private val client = ImapClient()
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
-    private val tableDateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    private val tableDateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
 
     private lateinit var store: SecureStore
     private lateinit var flipper: ViewFlipper

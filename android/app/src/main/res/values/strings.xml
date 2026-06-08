@@ -5,7 +5,7 @@
     <string name="app_name">Limier</string>
 
     <string name="config_title">IMAP account</string>
-    <string name="config_domain_label">Domain</string>
+    <string name="config_domain_label">Host</string>
     <string name="config_domain_hint">imap.example.org</string>
     <string name="config_port_label">Port</string>
     <string name="config_port_hint">993</string>
@@ -13,10 +13,10 @@
     <string name="config_login_label">Login</string>
     <string name="config_login_hint">you@example.org</string>
     <string name="config_password_label">Password</string>
-    <string name="config_submit">Save and search</string>
+    <string name="config_submit">Save</string>
     <string name="config_checking">Checking connection</string>
     <string name="config_check_failed">Could not connect</string>
-    <string name="config_incomplete">Domain and login are required</string>
+    <string name="config_incomplete">Host and login are required</string>
 
     <string name="search_title">Search your mailboxes</string>
     <string name="search_description">Hunt down lost mail across your account. Keywords are matched against every field of every message, in every mailbox at once.</string>
