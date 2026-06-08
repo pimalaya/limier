@@ -2,7 +2,7 @@
 <!-- limier - AGPL-3.0-or-later - Copyright (C) 2026 Clement DOUIN -->
 <resources>
 
-    <string name="app_name">limier</string>
+    <string name="app_name">Limier</string>
 
     <string name="config_title">IMAP account</string>
     <string name="config_domain_hint">Domain (e.g. imap.example.org)</string>
@@ -10,12 +10,17 @@
     <string name="config_login_hint">Login</string>
     <string name="config_password_hint">Password</string>
     <string name="config_submit">Save and search</string>
+    <string name="config_checking">Checking connection</string>
+    <string name="config_check_failed">Could not connect</string>
     <string name="config_incomplete">Domain and login are required</string>
 
-    <string name="search_hint">Keywords (matched across every field)</string>
+    <string name="search_title">Search your mailboxes</string>
+    <string name="search_description">Hunt down lost mail across your account. Keywords are matched against every field of every message, in every mailbox at once.</string>
+    <string name="search_hint">Keywords</string>
     <string name="search_submit">Search</string>
     <string name="search_stop">Stop</string>
-    <string name="search_edit_account">Edit account</string>
+    <string name="settings_action">Edit account</string>
+    <string name="back_action">Back</string>
     <string name="search_empty">Enter at least one keyword</string>
     <string name="search_running">Searching every mailbox</string>
 
@@ -27,7 +32,6 @@
     <string name="column_subject">Subject</string>
     <string name="column_date">Date</string>
 
-    <string name="detail_back">Back to results</string>
     <string name="detail_uid_label">UID</string>
     <string name="detail_subject_label">Subject</string>
     <string name="detail_date_label">Date</string>

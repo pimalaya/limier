@@ -128,6 +128,14 @@ class ImapClient {
     }
 
     /**
+     * Connects, authenticates and lists once to prove the account is
+     * usable. Blocking: call off the main thread. Throws on failure.
+     */
+    fun verify(account: Account) {
+        listMailboxes(account)
+    }
+
+    /**
      * Fetches and parses one message into its MIME parts. Blocking:
      * call off the main thread.
      */

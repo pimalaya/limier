@@ -10,13 +10,6 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <Button
-            android:id="@+id/detail_back"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:text="@string/detail_back" />
-
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

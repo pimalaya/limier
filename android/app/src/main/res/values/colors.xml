@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- limier - AGPL-3.0-or-later - Copyright (C) 2026 Clement DOUIN -->
+<resources>
+
+    <color name="app_bar">#1565C0</color>
+    <color name="app_bar_text">#FFFFFF</color>
+    <color name="table_border">#BDBDBD</color>
+
+</resources>

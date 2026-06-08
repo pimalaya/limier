@@ -72,6 +72,7 @@
             pkgs.jdk17
             pkgs.gradle
             androidSdk
+            pkgs.kotlin-language-server
           ];
 
           ANDROID_HOME = sdkRoot;

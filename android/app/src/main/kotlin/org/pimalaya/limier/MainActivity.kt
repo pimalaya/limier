@@ -33,6 +33,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.HorizontalScrollView
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -57,11 +58,11 @@ import org.pimalaya.limier.client.SearchHandle
 import org.pimalaya.limier.client.SearchListener
 
 /**
- * Single-activity host. Config, the merged search/results panel and a
- * message detail panel are swapped through a [ViewFlipper]. Search
- * streams foldable per-mailbox tables (UID / Date / Subject, newest
- * first); tapping a row fetches and parses the message into foldable
- * MIME-part sections.
+ * Single-activity host. The auth, search and message frames live in a [ViewFlipper] under a shared
+ * top bar, and are navigated as a back stack: search and message push onto it, the bar's back arrow
+ * (and the system back button) pop, and popping the root frame quits. Search streams foldable
+ * per-mailbox tables (UID / Date / Subject, newest first); tapping a row fetches and parses the
+ * message into foldable MIME-part sections.
  */
 class MainActivity : Activity() {
     private val client = ImapClient()
@@ -71,6 +72,8 @@ class MainActivity : Activity() {
 
     private lateinit var store: SecureStore
     private lateinit var flipper: ViewFlipper
+
+    private val stack = ArrayDeque<Int>()
 
     private var handle: SearchHandle? = null
     private var searching = false
@@ -85,13 +88,14 @@ class MainActivity : Activity() {
         store = SecureStore(this)
         flipper = findViewById(R.id.flipper)
 
+        setUpTopBar()
         setUpConfigPanel()
         setUpMainPanel()
-        findViewById<Button>(R.id.detail_back).setOnClickListener { show(PANEL_MAIN) }
 
-        if (store.load() != null) {
-            show(PANEL_MAIN)
-        }
+        // Credentials present means the account is already usable, so the
+        // search frame is the root; otherwise auth is the root and must
+        // be cleared before anything else can be reached.
+        resetStack(if (store.load() != null) PANEL_MAIN else PANEL_CONFIG)
     }
 
     override fun onDestroy() {
@@ -101,9 +105,7 @@ class MainActivity : Activity() {
     }
 
     override fun onBackPressed() {
-        if (flipper.displayedChild == PANEL_DETAIL) {
-            show(PANEL_MAIN)
-        } else {
+        if (!popFrame()) {
             super.onBackPressed()
         }
     }
@@ -124,6 +126,11 @@ class MainActivity : Activity() {
         } catch (error: Exception) {
             toast(getString(R.string.download_failed))
         }
+    }
+
+    private fun setUpTopBar() {
+        findViewById<ImageButton>(R.id.top_back).setOnClickListener { popFrame() }
+        findViewById<ImageButton>(R.id.top_settings).setOnClickListener { pushFrame(PANEL_CONFIG) }
     }
 
     private fun setUpConfigPanel() {
@@ -156,8 +163,33 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
 
-            store.save(account)
-            show(PANEL_MAIN)
+            verifyAndSave(account)
+        }
+    }
+
+    /**
+     * Proves the account connects and authenticates before persisting it. Only on success are the
+     * credentials saved and the stack reset to the search frame.
+     */
+    private fun verifyAndSave(account: Account) {
+        val submit = findViewById<Button>(R.id.config_submit)
+        submit.isEnabled = false
+        submit.setText(R.string.config_checking)
+
+        io.execute {
+            val outcome = runCatching { client.verify(account) }
+            main.post {
+                submit.isEnabled = true
+                submit.setText(R.string.config_submit)
+                outcome
+                    .onSuccess {
+                        store.save(account)
+                        resetStack(PANEL_MAIN)
+                    }
+                    .onFailure { error ->
+                        toast(error.message ?: getString(R.string.config_check_failed))
+                    }
+            }
         }
     }
 
@@ -167,7 +199,6 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.search_submit).setOnClickListener {
             if (searching) stopSearch() else startSearch()
         }
-        findViewById<Button>(R.id.search_edit_account).setOnClickListener { show(PANEL_CONFIG) }
 
         keywords.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH && !searching) {
@@ -188,7 +219,7 @@ class MainActivity : Activity() {
 
         val account = store.load()
         if (account == null) {
-            show(PANEL_CONFIG)
+            resetStack(PANEL_CONFIG)
             return
         }
 
@@ -295,7 +326,7 @@ class MainActivity : Activity() {
         return HorizontalScrollView(this).apply { addView(table) }
     }
 
-    /** Fetches the message, then renders its parts as foldable sections. */
+    /** Pushes the message frame, fetches the message, then renders its parts as foldable sections. */
     private fun showDetail(mailbox: String, hit: Hit) {
         findViewById<TextView>(R.id.detail_uid).text = hit.uid.toString()
         findViewById<TextView>(R.id.detail_date).text = hit.date.ifEmpty { formatTableDate(hit) }
@@ -307,7 +338,7 @@ class MainActivity : Activity() {
         parts.removeAllViews()
         status.text = getString(R.string.detail_loading)
         status.visibility = View.VISIBLE
-        show(PANEL_DETAIL)
+        pushFrame(PANEL_DETAIL)
 
         val account = store.load() ?: return
         io.execute {
@@ -395,9 +426,9 @@ class MainActivity : Activity() {
         }
 
     /**
-     * Renders an HTML part in a contained, sandboxed WebView (an iframe
-     * equivalent): JavaScript off and network loads blocked, so remote
-     * trackers and scripts never run; links open in the browser.
+     * Renders an HTML part in a contained, sandboxed WebView (an iframe equivalent): JavaScript off
+     * and network loads blocked, so remote trackers and scripts never run; links open in the
+     * browser.
      */
     private fun htmlView(html: String): View =
         WebView(this).apply {
@@ -467,6 +498,7 @@ class MainActivity : Activity() {
         TextView(this).apply {
             this.text = text
             isSingleLine = true
+            setBackgroundResource(R.drawable.cell_border)
             setPadding(dp(8), dp(6), dp(8), dp(6))
             if (bold) setTypeface(typeface, Typeface.BOLD)
         }
@@ -490,8 +522,37 @@ class MainActivity : Activity() {
         return value.resourceId
     }
 
-    private fun show(panel: Int) {
-        flipper.displayedChild = panel
+    /** Pushes [panel] onto the back stack and shows it. */
+    private fun pushFrame(panel: Int) {
+        stack.addLast(panel)
+        renderFrame()
+    }
+
+    /** Pops the top frame; returns false when the root is reached and nothing can be popped. */
+    private fun popFrame(): Boolean {
+        if (stack.size <= 1) {
+            return false
+        }
+        stack.removeLast()
+        renderFrame()
+        return true
+    }
+
+    /** Clears the back stack down to a single root [panel]. */
+    private fun resetStack(panel: Int) {
+        stack.clear()
+        stack.addLast(panel)
+        renderFrame()
+    }
+
+    /** Shows the top frame, and reflects the stack in the bar's back arrow and settings icon. */
+    private fun renderFrame() {
+        val top = stack.last()
+        flipper.displayedChild = top
+        findViewById<ImageButton>(R.id.top_back).visibility =
+            if (stack.size > 1) View.VISIBLE else View.GONE
+        findViewById<ImageButton>(R.id.top_settings).visibility =
+            if (top == PANEL_MAIN) View.VISIBLE else View.GONE
     }
 
     private fun toast(message: String) {
