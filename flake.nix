@@ -36,16 +36,14 @@
           };
         };
 
-        # Stable Rust (fenix monthly, as in the rest of the suite) plus
-        # the std libs for the four Android ABIs we ship.
+        # Stable Rust via fenix, reading the channel, components and the
+        # four Android ABI targets straight from rust-toolchain.toml so the
+        # toolchain is defined once (shared with rustup/rust-analyzer).
         fx = fenix.packages.${system};
-        rust = fx.combine [
-          fx.stable.toolchain
-          fx.targets.aarch64-linux-android.stable.rust-std
-          fx.targets.armv7-linux-androideabi.stable.rust-std
-          fx.targets.x86_64-linux-android.stable.rust-std
-          fx.targets.i686-linux-android.stable.rust-std
-        ];
+        rust = fx.fromToolchainFile {
+          file = ./rust-toolchain.toml;
+          sha256 = "sha256-mvUGEOHYJpn3ikC5hckneuGixaC+yGrkMM/liDIDgoU=";
+        };
 
         # Bump these together; the NDK version must exist in the pinned
         # nixpkgs androidenv.
