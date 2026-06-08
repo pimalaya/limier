@@ -66,6 +66,7 @@
         devShells.default = pkgs.mkShell {
           buildInputs = [
             rust
+            pkgs.cargo-deny
             pkgs.cargo-ndk
             pkgs.jdk17
             pkgs.gradle

@@ -15,6 +15,11 @@
 *.apk
 *.aab
 
+# Signing material must never be committed
+*.jks
+*.keystore
+keystore.properties
+
 # Nix
 result
 result-*
