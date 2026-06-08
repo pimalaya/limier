@@ -36,7 +36,10 @@ use jni::{
     JNIEnv,
 };
 
-use crate::types::{parse_parts, Credentials, Hit, MailboxHits, Part};
+use crate::{
+    types::{Credentials, Hit, MailboxHits, Part},
+    utils::parse_parts,
+};
 
 /// Matches io-imap's own fragmentizer ceiling (100 MiB per message).
 const MAX_MESSAGE_SIZE: u32 = 100 * 1024 * 1024;

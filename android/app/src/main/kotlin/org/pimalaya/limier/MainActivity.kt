@@ -3,7 +3,6 @@ package org.pimalaya.limier
 import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -346,7 +345,7 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Renders one MIME part: text shown, image displayed, binary opened or saved. */
+    /** Renders one MIME part: text shown, image displayed, binary downloadable. */
     private fun partBody(part: MessagePart): View =
         when (part.kind) {
             PartKind.TEXT ->
@@ -403,18 +402,6 @@ class MainActivity : Activity() {
                         }
                     )
 
-                    // Opening with an installed viewer is preferred over
-                    // saving (a PDF is read, not hoarded); the Save button
-                    // stays for everything else and as a fallback.
-                    if (canOpen(part.mime)) {
-                        addView(
-                            Button(this@MainActivity).apply {
-                                text = getString(R.string.open_action, name)
-                                setOnClickListener { openPart(part) }
-                            }
-                        )
-                    }
-
                     addView(
                         Button(this@MainActivity).apply {
                             text = getString(R.string.download_action, name)
@@ -424,28 +411,6 @@ class MainActivity : Activity() {
                 }
             }
         }
-
-    /** Whether an installed app can view a part of this MIME type. */
-    private fun canOpen(mime: String): Boolean {
-        val probe =
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(Uri.parse("content://$packageName.attachments/probe"), mime)
-        return probe.resolveActivity(packageManager) != null
-    }
-
-    /** Caches the part and hands it to an external viewer. */
-    private fun openPart(part: MessagePart) {
-        val intent =
-            Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(AttachmentProvider.cache(this@MainActivity, part), part.mime)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-        try {
-            startActivity(intent)
-        } catch (error: Exception) {
-            toast(getString(R.string.open_failed))
-        }
-    }
 
     /**
      * Renders an HTML part in a contained, sandboxed WebView (an iframe equivalent): JavaScript off

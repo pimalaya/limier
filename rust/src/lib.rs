@@ -19,3 +19,4 @@
 mod client;
 mod ffi;
 mod types;
+mod utils;

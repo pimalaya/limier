@@ -55,36 +55,47 @@
 
     </LinearLayout>
 
-    <!-- Thin loading bar flush against the app bar, shown only while a search
-         runs: done portion in the app bar blue (left), remaining in white. -->
-    <ProgressBar
-        android:id="@+id/search_progress"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="3dp"
-        android:max="100"
-        android:minHeight="3dp"
-        android:maxHeight="3dp"
-        android:progress="0"
-        android:indeterminateTint="@color/app_bar"
-        android:progressBackgroundTint="@android:color/white"
-        android:progressTint="@color/app_bar"
-        android:visibility="gone" />
-
-    <ViewFlipper
-        android:id="@+id/flipper"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <include layout="@layout/panel_config" />
+        <ViewFlipper
+            android:id="@+id/flipper"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
 
-        <include layout="@layout/panel_main" />
+            <include layout="@layout/panel_config" />
 
-        <include layout="@layout/panel_detail" />
+            <include layout="@layout/panel_main" />
 
-        <include layout="@layout/panel_about" />
+            <include layout="@layout/panel_detail" />
 
-    </ViewFlipper>
+            <include layout="@layout/panel_about" />
+
+        </ViewFlipper>
+
+        <!-- Thin loading bar overlaid on the top edge of the content, flush
+             against the app bar and shown only while a search runs. Drawn as
+             an overlay (not a flow sibling) so toggling it never shifts the
+             content down: done portion in the app bar blue (left), remaining
+             in white. -->
+        <ProgressBar
+            android:id="@+id/search_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:layout_gravity="top"
+            android:elevation="4dp"
+            android:max="100"
+            android:minHeight="3dp"
+            android:maxHeight="3dp"
+            android:progress="0"
+            android:indeterminateTint="@color/app_bar"
+            android:progressBackgroundTint="@android:color/white"
+            android:progressTint="@color/app_bar"
+            android:visibility="gone" />
+
+    </FrameLayout>
 
 </LinearLayout>
