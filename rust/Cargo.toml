@@ -18,7 +18,7 @@ crate-type = ["cdylib"]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 chrono = { version = "0.4", default-features = false, features = ["alloc"] }
 io-imap = { version = "0.1", default-features = false }
-jni = "0.21"
+jni = "0.22"
 mail-parser = "0.11"
 rfc2047-decoder = "1"
 serde = { version = "1", default-features = false, features = ["alloc", "derive"] }

@@ -1,5 +1,5 @@
-//! Blocking IMAP client over the JNI transport: wraps a `JNIEnv` and
-//! the Kotlin `Transport` with a per-connection [`Fragmentizer`] and one
+//! Blocking IMAP client over the JNI transport: wraps an `Env` and the
+//! Kotlin `Transport` with a per-connection [`Fragmentizer`] and one
 //! method per coroutine, mirroring io-imap's own `ImapClientStd`.
 //!
 //! Session state is not cached: each native call builds a client,
@@ -31,8 +31,9 @@ use io_imap::{
     },
 };
 use jni::{
-    JNIEnv,
+    Env, JValue,
     errors::Error,
+    jni_sig, jni_str,
     objects::{JByteArray, JObject},
 };
 
@@ -44,18 +45,17 @@ use crate::{
 /// Matches io-imap's own fragmentizer ceiling (100 MiB per message).
 const MAX_MESSAGE_SIZE: u32 = 100 * 1024 * 1024;
 
-/// One native call's IMAP client: a mutable `JNIEnv`, the Kotlin
-/// transport it upcalls for socket I/O, and a per-connection
-/// fragmentizer.
+/// One native call's IMAP client: a mutable `Env`, the Kotlin transport
+/// it upcalls for socket I/O, and a per-connection fragmentizer.
 pub struct Client<'a, 'local> {
-    env: &'a mut JNIEnv<'local>,
+    env: &'a mut Env<'local>,
     transport: &'a JObject<'local>,
     fragmentizer: Fragmentizer,
 }
 
 impl<'a, 'local> Client<'a, 'local> {
     /// Wraps the JNI context for one connection.
-    pub fn new(env: &'a mut JNIEnv<'local>, transport: &'a JObject<'local>) -> Self {
+    pub fn new(env: &'a mut Env<'local>, transport: &'a JObject<'local>) -> Self {
         Self {
             env,
             transport,
@@ -80,10 +80,10 @@ impl<'a, 'local> Client<'a, 'local> {
                     // NOTE: an empty slice signals EOF to the coroutine.
                     let value = self
                         .env
-                        .call_method(self.transport, "read", "()[B", &[])
+                        .call_method(self.transport, jni_str!("read"), jni_sig!("()[B"), &[])
                         .map_err(|err| clear_and_fail(self.env, "transport read", err))?;
-                    let array = value.l().map_err(|err| err.to_string())?;
-                    let array = unsafe { JByteArray::from_raw(array.into_raw()) };
+                    let object = value.l().map_err(|err| err.to_string())?;
+                    let array = unsafe { JByteArray::from_raw(self.env, object.into_raw()) };
                     arg = Some(
                         self.env
                             .convert_byte_array(&array)
@@ -96,7 +96,12 @@ impl<'a, 'local> Client<'a, 'local> {
                         .byte_array_from_slice(&bytes)
                         .map_err(|err| err.to_string())?;
                     self.env
-                        .call_method(self.transport, "write", "([B)V", &[(&array).into()])
+                        .call_method(
+                            self.transport,
+                            jni_str!("write"),
+                            jni_sig!("([B)V"),
+                            &[JValue::Object(&array)],
+                        )
                         .map_err(|err| clear_and_fail(self.env, "transport write", err))?;
                     arg = None;
                 }
@@ -330,9 +335,9 @@ impl<'a, 'local> Client<'a, 'local> {
         self.env
             .call_method(
                 listener,
-                "onMailbox",
-                "(Ljava/lang/String;)V",
-                &[(&payload).into()],
+                jni_str!("onMailbox"),
+                jni_sig!("(Ljava/lang/String;)V"),
+                &[JValue::Object(&payload)],
             )
             .map_err(|err| clear_and_fail(self.env, "listener onMailbox", err))?;
         Ok(())
@@ -341,7 +346,7 @@ impl<'a, 'local> Client<'a, 'local> {
     /// Tells the Kotlin listener one more mailbox has been processed.
     fn emit_progress(&mut self, listener: &JObject) -> Result<(), String> {
         self.env
-            .call_method(listener, "onProgress", "()V", &[])
+            .call_method(listener, jni_str!("onProgress"), jni_sig!("()V"), &[])
             .map_err(|err| clear_and_fail(self.env, "listener onProgress", err))?;
         Ok(())
     }
@@ -349,7 +354,7 @@ impl<'a, 'local> Client<'a, 'local> {
     /// Asks the Kotlin listener whether the search has been cancelled.
     fn should_stop(&mut self, listener: &JObject) -> Result<bool, String> {
         self.env
-            .call_method(listener, "shouldStop", "()Z", &[])
+            .call_method(listener, jni_str!("shouldStop"), jni_sig!("()Z"), &[])
             .map_err(|err| clear_and_fail(self.env, "listener shouldStop", err))?
             .z()
             .map_err(|err| err.to_string())
@@ -387,7 +392,7 @@ fn mailbox_name(mailbox: &Mailbox<'static>) -> String {
 }
 
 /// Clears any pending Java exception and renders a message.
-fn clear_and_fail(env: &mut JNIEnv, op: &str, err: Error) -> String {
-    env.exception_clear().ok();
+fn clear_and_fail(env: &mut Env, op: &str, err: Error) -> String {
+    env.exception_clear();
     format!("{op} failed: {err}")
 }
