@@ -1,7 +1,3 @@
-// limier - search your mailboxes for lost mail
-// Copyright (C) 2026  Clement DOUIN
-// Licensed under the GNU Affero General Public License v3 or later.
-
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")

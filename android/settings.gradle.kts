@@ -1,5 +1,3 @@
-// limier - AGPL-3.0-or-later - Copyright (C) 2026 Clement DOUIN
-
 pluginManagement {
     repositories {
         google()

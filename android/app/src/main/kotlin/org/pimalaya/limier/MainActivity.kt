@@ -1,20 +1,3 @@
-// limier - search your mailboxes for lost mail
-// Copyright (C) 2026  Clement DOUIN
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as
-// published by the Free Software Foundation, either version 3 of the
-// License, or (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful, but
-// WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-// Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public
-// License along with this program. If not, see
-// <https://www.gnu.org/licenses/>.
-
 package org.pimalaya.limier
 
 import android.app.Activity
@@ -55,11 +38,11 @@ import org.pimalaya.limier.client.SearchHandle
 import org.pimalaya.limier.client.SearchListener
 
 /**
- * Single-activity host. The auth, search and message frames live in a [ViewFlipper] under a shared
- * top bar, and are navigated as a back stack: search and message push onto it, the bar's back arrow
- * (and the system back button) pop, and popping the root frame quits. Search streams foldable
- * per-mailbox tables (UID / Date / Subject, newest first); tapping a row fetches and parses the
- * message into foldable MIME-part sections.
+ * Single-activity host. The auth, search, message and about frames live in a [ViewFlipper] under a
+ * shared top bar, and are navigated as a back stack: search, message and about push onto it, the
+ * bar's back arrow (and the system back button) pop, and popping the root frame quits. Search
+ * streams foldable per-mailbox lists of date and subject, newest first; tapping a row fetches and
+ * parses the message into foldable MIME-part sections.
  */
 class MainActivity : Activity() {
     private val client = ImapClient()
