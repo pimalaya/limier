@@ -41,7 +41,9 @@
     <string name="detail_failed">Could not load message</string>
     <string name="detail_image_error">Cannot display image</string>
     <string name="part_details">Name: %1$s\nType: %2$s\nSize: %3$s</string>
-    <string name="download_action">Download %1$s</string>
+    <string name="open_action">Open %1$s</string>
+    <string name="open_failed">No app can open this attachment</string>
+    <string name="download_action">Save %1$s</string>
     <string name="download_saved">Saved</string>
     <string name="download_failed">Could not save file</string>
     <string name="attachment_default_name">attachment</string>

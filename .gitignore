@@ -6,8 +6,8 @@
 /android/client/src/main/jniLibs/
 
 # Gradle / Android
-/android/.gradle/
-/android/.gradle-home/
+.gradle/
+.gradle-home/
 /android/build/
 /android/*/build/
 /android/local.properties

@@ -88,7 +88,11 @@
           # GRADLE_USER_HOME keeps the store-specific path out of the
           # tracked config and out of other projects' ~/.gradle.
           shellHook = ''
-            export GRADLE_USER_HOME="$PWD/android/.gradle-home"
+            # Anchor to the repo root, not $PWD: a relative home would
+            # spawn a stray android/.gradle-home under whatever directory
+            # nix develop was entered from.
+            root="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
+            export GRADLE_USER_HOME="$root/android/.gradle-home"
             mkdir -p "$GRADLE_USER_HOME"
             echo "android.aapt2FromMavenOverride=${sdkRoot}/build-tools/${buildToolsVersion}/aapt2" \
               > "$GRADLE_USER_HOME/gradle.properties"

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the Android `:client` module exposing `ImapClient.search`, owning the TLS `SSLSocket` and the native bridge.
 - Added the Android `:app` module: a single activity flipping between the config, search and results panels, with Keystore-encrypted credential storage.
 - Added the Nix flake providing the Rust toolchain (Android targets), cargo-ndk, the Android SDK/NDK, JDK 17 and Gradle.
+- Added an Open action on message attachments that hands the part to an installed viewer through a content URI when one can handle the type, keeping Save as the fallback.
 
 ### Changed
 
