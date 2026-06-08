@@ -20,10 +20,10 @@ package org.pimalaya.limier
 import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -32,14 +32,11 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
-import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Spinner
-import android.widget.TableLayout
-import android.widget.TableRow
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ViewFlipper
@@ -132,6 +129,7 @@ class MainActivity : Activity() {
     private fun setUpTopBar() {
         findViewById<ImageButton>(R.id.top_back).setOnClickListener { popFrame() }
         findViewById<ImageButton>(R.id.top_settings).setOnClickListener { pushFrame(PANEL_CONFIG) }
+        findViewById<ImageButton>(R.id.top_about).setOnClickListener { pushFrame(PANEL_ABOUT) }
     }
 
     private fun setUpConfigPanel() {
@@ -296,50 +294,40 @@ class MainActivity : Activity() {
 
         if (running) {
             progress.isIndeterminate = true
+            progress.progress = 0
+            progress.visibility = View.VISIBLE
             findViewById<TextView>(R.id.search_status).text = getString(R.string.search_running)
         } else {
-            // Settle the bar back to its idle, empty state without collapsing
-            // it, so the layout never shifts.
-            progress.isIndeterminate = false
-            progress.progress = 0
+            progress.visibility = View.GONE
         }
     }
 
     private fun addSection(hits: MailboxHits) {
         val container = findViewById<LinearLayout>(R.id.results_container)
         val title = "${hits.mailbox}  (${hits.hits.size})"
-        container.addView(foldable(title, buildTable(hits.mailbox, hits.hits), expanded = true))
+        container.addView(foldable(title, buildList(hits.mailbox, hits.hits), expanded = true))
     }
 
-    /** A horizontally scrollable UID / Date / Subject table, newest first. */
-    private fun buildTable(mailbox: String, hits: List<Hit>): View {
-        val table =
-            TableLayout(this).apply {
-                setBackgroundResource(R.drawable.table_border)
-                addView(
-                    row(
-                        cell(getString(R.string.column_uid), bold = true),
-                        cell(getString(R.string.column_date), bold = true),
-                        cell(getString(R.string.column_subject), bold = true),
-                    )
-                )
-            }
-
-        for (hit in hits) {
-            val subject = hit.subject.ifEmpty { getString(R.string.results_no_subject) }
-            val tableRow =
-                row(
-                    cell(hit.uid.toString()),
-                    cell(formatTableDate(hit)),
-                    cell(subject),
-                )
-            tableRow.isClickable = true
-            tableRow.setBackgroundResource(selectableItemBackground())
-            tableRow.setOnClickListener { showDetail(mailbox, hit) }
-            table.addView(tableRow)
+    /** A list of clickable "date: subject" rows, newest first, divided by a thin line. */
+    private fun buildList(mailbox: String, hits: List<Hit>): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            dividerDrawable = getDrawable(R.drawable.divider)
+            showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
+            hits.forEach { hit -> addView(listRow(mailbox, hit)) }
         }
 
-        return HorizontalScrollView(this).apply { addView(table) }
+    private fun listRow(mailbox: String, hit: Hit): View {
+        val subject = hit.subject.ifEmpty { getString(R.string.results_no_subject) }
+        return TextView(this).apply {
+            text = getString(R.string.results_row, formatTableDate(hit), subject)
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
+            setBackgroundResource(selectableItemBackground())
+            setPadding(dp(8), dp(12), dp(8), dp(12))
+            isClickable = true
+            setOnClickListener { showDetail(mailbox, hit) }
+        }
     }
 
     /** Pushes the message frame, fetches the message, then renders its parts as foldable sections. */
@@ -507,18 +495,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun row(vararg cells: TextView): TableRow =
-        TableRow(this).apply { cells.forEach { addView(it) } }
-
-    private fun cell(text: String, bold: Boolean = false): TextView =
-        TextView(this).apply {
-            this.text = text
-            isSingleLine = true
-            setBackgroundResource(R.drawable.cell_border)
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-            if (bold) setTypeface(typeface, Typeface.BOLD)
-        }
-
     private fun formatTableDate(hit: Hit): String =
         if (hit.timestamp > 0) tableDateFormat.format(Date(hit.timestamp * 1000)) else hit.date
 
@@ -569,6 +545,8 @@ class MainActivity : Activity() {
             if (stack.size > 1) View.VISIBLE else View.GONE
         findViewById<ImageButton>(R.id.top_settings).visibility =
             if (top == PANEL_MAIN) View.VISIBLE else View.GONE
+        findViewById<ImageButton>(R.id.top_about).visibility =
+            if (top == PANEL_CONFIG) View.VISIBLE else View.GONE
     }
 
     private fun toast(message: String) {
@@ -581,6 +559,7 @@ class MainActivity : Activity() {
         const val PANEL_CONFIG = 0
         const val PANEL_MAIN = 1
         const val PANEL_DETAIL = 2
+        const val PANEL_ABOUT = 3
         const val DEFAULT_PORT = 993
         const val REQ_SAVE = 1
     }

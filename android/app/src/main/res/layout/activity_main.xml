@@ -45,11 +45,19 @@
             android:contentDescription="@string/settings_action"
             android:src="@drawable/ic_settings" />
 
+        <ImageButton
+            android:id="@+id/top_about"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/about_action"
+            android:src="@drawable/ic_info"
+            android:visibility="gone" />
+
     </LinearLayout>
 
-    <!-- Thin, fixed-height bar flush against the app bar: the track shares
-         the app bar colour so it reads as its bottom edge, and it always
-         occupies its height so the content never jumps. -->
+    <!-- Thin loading bar flush against the app bar, shown only while a search
+         runs: done portion in the app bar blue (left), remaining in white. -->
     <ProgressBar
         android:id="@+id/search_progress"
         style="?android:attr/progressBarStyleHorizontal"
@@ -59,9 +67,10 @@
         android:minHeight="3dp"
         android:maxHeight="3dp"
         android:progress="0"
-        android:indeterminateTint="@color/app_bar_text"
-        android:progressBackgroundTint="@color/app_bar"
-        android:progressTint="@color/app_bar_text" />
+        android:indeterminateTint="@color/app_bar"
+        android:progressBackgroundTint="@android:color/white"
+        android:progressTint="@color/app_bar"
+        android:visibility="gone" />
 
     <ViewFlipper
         android:id="@+id/flipper"
@@ -74,6 +83,8 @@
         <include layout="@layout/panel_main" />
 
         <include layout="@layout/panel_detail" />
+
+        <include layout="@layout/panel_about" />
 
     </ViewFlipper>
 

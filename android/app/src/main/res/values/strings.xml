@@ -5,10 +5,14 @@
     <string name="app_name">Limier</string>
 
     <string name="config_title">IMAP account</string>
-    <string name="config_domain_hint">Domain (e.g. imap.example.org)</string>
-    <string name="config_port_hint">Port (993)</string>
-    <string name="config_login_hint">Login</string>
-    <string name="config_password_hint">Password</string>
+    <string name="config_domain_label">Domain</string>
+    <string name="config_domain_hint">imap.example.org</string>
+    <string name="config_port_label">Port</string>
+    <string name="config_port_hint">993</string>
+    <string name="config_sasl_label">Mechanism</string>
+    <string name="config_login_label">Login</string>
+    <string name="config_login_hint">you@example.org</string>
+    <string name="config_password_label">Password</string>
     <string name="config_submit">Save and search</string>
     <string name="config_checking">Checking connection</string>
     <string name="config_check_failed">Could not connect</string>
@@ -20,6 +24,7 @@
     <string name="search_submit">Search</string>
     <string name="search_stop">Stop</string>
     <string name="settings_action">Edit account</string>
+    <string name="about_action">About</string>
     <string name="back_action">Back</string>
     <string name="search_empty">Enter at least one keyword</string>
     <string name="search_running">Searching every mailbox</string>
@@ -28,10 +33,7 @@
     <string name="results_live">%1$d match(es) in %2$d mailbox(es)</string>
     <string name="results_none">No message matched.</string>
     <string name="results_no_subject">(no subject)</string>
-
-    <string name="column_uid">UID</string>
-    <string name="column_subject">Subject</string>
-    <string name="column_date">Date</string>
+    <string name="results_row">%1$s: %2$s</string>
 
     <string name="detail_uid_label">UID</string>
     <string name="detail_subject_label">Subject</string>
@@ -44,6 +46,16 @@
     <string name="download_saved">Saved</string>
     <string name="download_failed">Could not save file</string>
     <string name="attachment_default_name">attachment</string>
+
+    <string name="about_pimalaya_title">Pimalaya</string>
+    <string name="about_pimalaya_body">Pimalaya is a free and open-source project to manage your personal data (emails, contacts, calendars and more), built from small, reusable, I/O-free building blocks that run anywhere, from the desktop to mobile.</string>
+    <string name="about_limier_title">Limier</string>
+    <string name="about_limier_body">Limier hunts down lost mail buried across your IMAP mailboxes: compose one deliberately broad search and run it against every folder at once. Your account never leaves the device; it is stored encrypted with the Android Keystore, and mailboxes are only ever opened read-only.</string>
+    <string name="about_links_title">Links</string>
+    <string name="about_links_body">Website: https://pimalaya.org\nSource code: https://github.com/pimalaya/limier\nMatrix chat: https://matrix.to/#/#pimalaya:matrix.org\nMastodon: https://fosstodon.org/@pimalaya</string>
+    <string name="about_support_title">Support</string>
+    <string name="about_support_body">Limier is developed on personal time and given away for free. Special thanks to the NLnet foundation and the European Commission, which have funded Pimalaya for years. If you find limier useful, consider supporting the work:</string>
+    <string name="about_donate_body">GitHub Sponsors: https://github.com/sponsors/soywod\nKo-fi: https://ko-fi.com/soywod\nLiberapay: https://liberapay.com/soywod\nPayPal: https://www.paypal.com/paypalme/soywod\nthanks.dev: https://thanks.dev/soywod</string>
 
     <string-array name="sasl_mechanisms">
         <item>PLAIN</item>

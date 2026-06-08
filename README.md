@@ -18,7 +18,7 @@ Enter your account once, type a few keywords, and limier reports which message m
 The app has three frames under a shared top bar, navigated as a back stack (the bar's back arrow and the system back button pop; popping the root quits):
 
 1. **Auth** (root on first launch): IMAP domain, port, SASL mechanism (PLAIN or LOGIN), login and password. On submit the connection is verified first; only then is the account cached locally, encrypted with an AES-GCM key held in the Android Keystore, and the stack reset to search.
-2. **Search** (root once credentials exist): one search bar. Keywords are whitespace-split, each turned into an IMAP `TEXT` key (matching the whole message, header and body), and OR-folded so a hit on any keyword counts; matches are grouped by mailbox, showing UID, subject and date.
+2. **Search** (root once credentials exist): one search bar. Keywords are whitespace-split, each turned into an IMAP `TEXT` key (matching the whole message, header and body), and OR-folded so a hit on any keyword counts; matches are grouped by mailbox as a list of date and subject.
 3. **Message**: pushed when a result is tapped, showing the fetched message parsed into foldable MIME parts.
 
 Under the hood each mailbox is walked read-only with `EXAMINE`, then `UID SEARCH`, then `UID FETCH ENVELOPE` for the matches. A folder that cannot be examined is skipped, so one bad mailbox never aborts the sweep.

@@ -14,14 +14,19 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:padding="16dp">
 
             <TextView
                 style="@style/FrameTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
                 android:text="@string/config_title" />
+
+            <TextView
+                style="@style/FieldLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/config_domain_label" />
 
             <EditText
                 android:id="@+id/config_domain"
@@ -29,6 +34,12 @@
                 android:layout_height="wrap_content"
                 android:hint="@string/config_domain_hint"
                 android:inputType="textUri" />
+
+            <TextView
+                style="@style/FieldLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/config_port_label" />
 
             <EditText
                 android:id="@+id/config_port"
@@ -38,12 +49,23 @@
                 android:inputType="number"
                 android:text="993" />
 
+            <TextView
+                style="@style/FieldLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/config_sasl_label" />
+
             <Spinner
                 android:id="@+id/config_sasl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
                 android:entries="@array/sasl_mechanisms" />
+
+            <TextView
+                style="@style/FieldLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/config_login_label" />
 
             <EditText
                 android:id="@+id/config_login"
@@ -52,11 +74,16 @@
                 android:hint="@string/config_login_hint"
                 android:inputType="textEmailAddress" />
 
+            <TextView
+                style="@style/FieldLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/config_password_label" />
+
             <EditText
                 android:id="@+id/config_password"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="@string/config_password_hint"
                 android:inputType="textPassword" />
 
         </LinearLayout>

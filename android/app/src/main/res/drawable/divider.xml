@@ -1,0 +1,8 @@
+<!-- limier - AGPL-3.0-or-later - Copyright (C) 2026 Clement DOUIN -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <size android:height="1dp" />
+    <solid android:color="@color/table_border" />
+
+</shape>
