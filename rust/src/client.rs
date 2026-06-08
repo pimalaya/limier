@@ -31,9 +31,9 @@ use io_imap::{
     },
 };
 use jni::{
+    JNIEnv,
     errors::Error,
     objects::{JByteArray, JObject},
-    JNIEnv,
 };
 
 use crate::{

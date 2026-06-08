@@ -1,6 +1,6 @@
 //! Parsing helpers turning IMAP FETCH results into the result payloads.
 
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use mail_parser::{MessageParser, MessagePart, MimeHeaders, PartType};
 use rfc2047_decoder::{Decoder, RecoverStrategy};
 

@@ -1,8 +1,8 @@
 # 🐶 Limier [![Matrix](https://img.shields.io/badge/chat-%23pimalaya-blue?style=flat&logo=matrix&logoColor=white)](https://matrix.to/#/#pimalaya:matrix.org) [![Mastodon](https://img.shields.io/badge/news-%40pimalaya-blue?style=flat&logo=mastodon&logoColor=white)](https://fosstodon.org/@pimalaya)
 
-Android app to hunt down lost mail buried across your IMAP mailboxes, by composing one deliberately broad search and running it against every folder at once.
+Android app to hunt down lost mails buried across your IMAP mailboxes
 
-Enter your account once, type a few keywords, and limier reports which message matched in which mailbox.
+![screenshot](./screenshot.jpeg)
 
 > [!WARNING]
 > Limier is early-stage software under active development: expect rough edges and breaking changes.
@@ -10,9 +10,7 @@ Enter your account once, type a few keywords, and limier reports which message m
 ## Table of contents
 
 - [Features](#features)
-- [How it works](#how-it-works)
-- [Architecture](#architecture)
-- [Build](#build)
+- [Installation](#installation)
 - [License](#license)
 - [AI disclosure](#ai-disclosure)
 - [Social](#social)
@@ -27,39 +25,9 @@ Enter your account once, type a few keywords, and limier reports which message m
 - Message viewer rendering MIME parts, with sandboxed HTML and attachment download.
 - Credentials kept on-device, encrypted with an AES-GCM key in the Android Keystore.
 
-## How it works
+## Installation
 
-The app has frames under a shared top bar, navigated as a back stack (the bar's back arrow and the system back button pop; popping the root quits):
-
-1. **Auth** (root on first launch): IMAP host, port, SASL mechanism (PLAIN or LOGIN), login and password. On submit the connection is verified first; only then is the account cached locally, encrypted with an AES-GCM key held in the Android Keystore, and the stack reset to search.
-2. **Search** (root once credentials exist): one search bar. Keywords are whitespace-split, each turned into an IMAP `TEXT` key (matching the whole message, header and body), and OR-folded so a hit on any keyword counts; matches are grouped by mailbox as a list of date and subject.
-3. **Message**: pushed when a result is tapped, showing the fetched message parsed into foldable MIME parts.
-
-Under the hood each mailbox is walked read-only with `EXAMINE`, then `UID SEARCH`, then `UID FETCH ENVELOPE` for the matches. A folder that cannot be examined is skipped, so one bad mailbox never aborts the sweep.
-
-## Architecture
-
-Three layers, each knowing only the one below:
-
-- `:app` (Kotlin, framework Views): the frames and Keystore storage. Talks only to `ImapClient`; never sees sockets or JNI.
-- `:client` (Android library): `ImapClient.search(account, keywords, listener)`, streaming hits mailbox by mailbox. Opens the TLS `SSLSocket` (platform trust store, zero APK cost), owns the JNI boundary, parses the bridge's JSON reply.
-- `liblimier.so` (Rust): [io-imap](https://github.com/pimalaya/io-imap)'s I/O-free coroutines, built with no TLS or client feature. It orchestrates the whole IMAP flow as a pure protocol state machine and performs socket I/O by upcalling the Kotlin transport on each read/write yield.
-
-TLS and TCP live in Kotlin on purpose: the `.so` stays a small `no_std` state machine that cross-compiles trivially, and certificate validation is handled by Android.
-
-## Build
-
-Everything is pinned by Nix (Rust with Android targets, cargo-ndk, the Android SDK/NDK, JDK 17, Gradle):
-
-```sh
-nix develop
-cd android
-gradle assembleRelease
-```
-
-`gradle` first cross-compiles the Rust bridge for the four ABIs (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`) via cargo-ndk into `client/src/main/jniLibs`, then assembles the APK. For a quick install on your own device, `gradle assembleDebug` produces a ready-to-sideload `app/build/outputs/apk/debug/app-debug.apk`.
-
-To iterate on the Rust bridge alone: `cd rust && cargo build`.
+Limier is not yet published, therefore the only way to install the app is to check out the [releases](https://github.com/pimalaya/limier/actions/workflows/releases.yml) GitHub workflow, look for the *Artifacts* section, download the APK and manually install it.
 
 ## License
 
@@ -74,7 +42,7 @@ at your option.
 
 This project is developed with AI assistance. This section documents how, so users and downstream packagers can make informed decisions.
 
-- **Tools**: Claude Code (Anthropic), Opus 4.7, invoked locally with a persistent project-scoped memory and a small set of repo-specific rules.
+- **Tools**: Claude Code (Anthropic), Opus 4.8, invoked locally with a persistent project-scoped memory and a small set of repo-specific rules.
 
 - **Used for**: Refactors, mechanical multi-file edits, boilerplate (feature gates, error enums, derive macros, trait impls), test scaffolding, doc polish, exploratory design conversations.
 
@@ -84,7 +52,7 @@ This project is developed with AI assistance. This section documents how, so use
 
 - **Limitations**: AI models occasionally produce code that compiles and passes tests but is subtly wrong: off-by-one errors, missed edge cases, plausible but nonexistent APIs, stale RFC references. The verification workflow catches most of this; it does not catch all of it. Bug reports are welcome and taken seriously.
 
-- **Last reviewed**: 31/05/2026
+- **Last reviewed**: 08/06/2026
 
 ## Social
 

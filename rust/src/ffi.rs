@@ -2,16 +2,16 @@
 //! one connection, so the client fans several out in parallel.
 
 use jni::{
+    JNIEnv,
     objects::{JClass, JObject, JString},
     sys::{jlong, jstring},
-    JNIEnv,
 };
 
 use crate::{client::Client, types::Credentials};
 
 /// `Native.listMailboxes`: greeting, auth, LIST. Returns a JSON array
 /// of selectable mailbox names, or `{"error": ".."}`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_pimalaya_limier_client_Native_listMailboxes<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -49,7 +49,7 @@ pub extern "system" fn Java_org_pimalaya_limier_client_Native_listMailboxes<'loc
 /// EXAMINE + UID SEARCH + UID FETCH ENVELOPE, calling `listener`'s
 /// `onMailbox(String)` for each mailbox that has hits. Returns an empty
 /// string on success, or an error message.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_pimalaya_limier_client_Native_searchMailboxes<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
@@ -89,7 +89,7 @@ pub extern "system" fn Java_org_pimalaya_limier_client_Native_searchMailboxes<'l
 
 /// `Native.fetchMessage`: greeting, auth, EXAMINE, UID FETCH BODY.PEEK[],
 /// then mail-parser. Returns `{"parts": [..]}` or `{"error": ".."}`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_pimalaya_limier_client_Native_fetchMessage<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
